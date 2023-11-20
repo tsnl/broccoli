@@ -1,0 +1,11 @@
+{
+  "files.associations": {
+    "*.rkt": "racket",
+    "*.purr": "racket",
+    "*.sa": "plaintext",
+    "*.ss": "scheme",
+    "*.v": "coq",
+    "*.gamma": "plaintext",
+    "ios": "cpp"
+  }
+}
