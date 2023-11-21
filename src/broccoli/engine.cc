@@ -1,7 +1,5 @@
 #include "broccoli/engine.hh"
 
-#include <iostream>
-
 #include "webgpu/webgpu_cpp.h"
 #include "webgpu/webgpu_glfw.h"
 #include "dawn/dawn_proc.h"
@@ -15,7 +13,7 @@
 namespace broccoli {
   void Activity::activate() {}
   void Activity::update(double dt_sec) { (void)dt_sec; }
-  void Activity::fixed_update(double dt_sec) { (void)dt_sec; }
+  void Activity::fixedUpdate(double dt_sec) { (void)dt_sec; }
   void Activity::draw(Renderer &device) { (void)device; }
   void Activity::deactivate() {}
 }
@@ -61,7 +59,7 @@ namespace broccoli {
     CHECK(m_wgpu_surface != nullptr, "Failed to create a WebGPU surface");
 
     wgpu::RequestAdapterOptions adapter_opts = {.compatibleSurface=m_wgpu_surface};
-    m_wgpu_adapter = request_adapter(m_wgpu_instance, &adapter_opts);
+    m_wgpu_adapter = requestAdapter(m_wgpu_instance, &adapter_opts);
 
     wgpu::DeviceDescriptor device_descriptor = {
       .nextInChain = nullptr,
@@ -73,8 +71,8 @@ namespace broccoli {
         .label = "Broccoli.Kernel.DefaultQueue",
       },
     };
-    m_wgpu_device = request_device(m_wgpu_adapter, &device_descriptor);
-    m_wgpu_device.SetUncapturedErrorCallback(Engine::on_uncaptured_error, nullptr);
+    m_wgpu_device = requestDevice(m_wgpu_adapter, &device_descriptor);
+    m_wgpu_device.SetUncapturedErrorCallback(Engine::onUncapturedError, nullptr);
 
     wgpu::SwapChainDescriptor swapchain_descriptor = {
       .nextInChain = nullptr,
@@ -98,17 +96,17 @@ namespace broccoli {
 }
 namespace broccoli {
   void Engine::run() {
-    update_activity_stack();
+    updateActivityStack();
     draw();
     m_prev_update_timestamp = glfwGetTime();
     m_fixed_update_accum_time = 0.0;
     m_is_running = true;
     glfwShowWindow(m_glfw_window);
     while (!glfwWindowShouldClose(m_glfw_window)) {
-      dispatch_events();
+      dispatchEvents();
       update();
       draw();
-      update_activity_stack();
+      updateActivityStack();
     }
   }
 }
@@ -118,19 +116,19 @@ namespace broccoli {
   }
 }
 namespace broccoli {
-  void Engine::push_activity(Activity::BuildCb activity_build_cb) {
+  void Engine::pushActivity(Activity::BuildCb activity_build_cb) {
     m_activity_stack_action_fifo.emplace(Activity::StackAction::Push, std::move(activity_build_cb));
   }
-  void Engine::swap_activity(Activity::BuildCb activity_build_cb) {
+  void Engine::swapActivity(Activity::BuildCb activity_build_cb) {
     m_activity_stack_action_fifo.emplace(Activity::StackAction::Swap, std::move(activity_build_cb));
   }
-  void Engine::pop_activity() {
+  void Engine::popActivity() {
     std::optional<Activity::BuildCb> none;
     m_activity_stack_action_fifo.emplace(Activity::StackAction::Pop, std::move(none));
   }
 }
 namespace broccoli {
-  void Engine::dispatch_events() {
+  void Engine::dispatchEvents() {
     glfwPollEvents();
   }
   void Engine::draw() {
@@ -154,27 +152,27 @@ namespace broccoli {
       m_activity_stack.top()->update(dt_sec);
       while (m_fixed_update_accum_time >= m_fixed_update_delta_sec) {
         m_fixed_update_accum_time -= m_fixed_update_delta_sec;
-        m_activity_stack.top()->fixed_update(m_fixed_update_delta_sec);
+        m_activity_stack.top()->fixedUpdate(m_fixed_update_delta_sec);
       }
     }
     m_prev_update_timestamp = curr_update_timestamp;
   }
-  void Engine::update_activity_stack() {
+  void Engine::updateActivityStack() {
     while (!m_activity_stack_action_fifo.empty()) {
       auto [action_type, opt_build_cb] = std::move(m_activity_stack_action_fifo.front());
       m_activity_stack_action_fifo.pop();
       switch (action_type) {
         case Activity::StackAction::Push:
           CHECK(opt_build_cb.has_value(), "expected 'Push' action to have a companion builder callback");
-          push_activity_impl(std::move(opt_build_cb.value()));
+          pushActivityImpl(std::move(opt_build_cb.value()));
           break;
         case Activity::StackAction::Swap:
           CHECK(opt_build_cb.has_value(), "expected 'Swap' action to have a companion builder callback");
-          swap_activity_impl(std::move(opt_build_cb.value()));
+          swapActivityImpl(std::move(opt_build_cb.value()));
           break;
         case Activity::StackAction::Pop:
           CHECK(!opt_build_cb.has_value(), "expected 'Pop' action to have no companion builder callback");
-          pop_activity_impl();
+          popActivityImpl();
           break;
         default:
           PANIC("Unknown stack action: {}", static_cast<int>(action_type));
@@ -186,7 +184,7 @@ namespace broccoli {
 namespace broccoli {
   struct AdapterData { WGPUAdapter adapter; bool request_ended; };
   struct DeviceData { WGPUDevice device; bool request_ended; };
-  wgpu::Adapter Engine::request_adapter(wgpu::Instance instance, wgpu::RequestAdapterOptions const *options) {
+  wgpu::Adapter Engine::requestAdapter(wgpu::Instance instance, wgpu::RequestAdapterOptions const *options) {
     AdapterData adapter_data{nullptr, false};
     auto const on_adapter_request_ended = [](WGPURequestAdapterStatus status, WGPUAdapter adapter, char const *message, void *p_user_data) {
       auto &data = *reinterpret_cast<AdapterData*>(p_user_data);
@@ -201,7 +199,7 @@ namespace broccoli {
     CHECK(adapter_data.request_ended, "expected async call to wgpuInstanceRequestAdapter to actually be sync");
     return static_cast<wgpu::Adapter>(adapter_data.adapter);
   }
-  wgpu::Device Engine::request_device(wgpu::Adapter adapter, wgpu::DeviceDescriptor const *descriptor) {
+  wgpu::Device Engine::requestDevice(wgpu::Adapter adapter, wgpu::DeviceDescriptor const *descriptor) {
     DeviceData device_data;
     auto const on_device_request_ended = [](WGPURequestDeviceStatus status, WGPUDevice device, char const *message, void *p_user_data) {
       DeviceData& data = *reinterpret_cast<DeviceData*>(p_user_data);
@@ -218,12 +216,12 @@ namespace broccoli {
   }
 }
 namespace broccoli {
-  void Engine::on_uncaptured_error(WGPUErrorType error_type, const char *message, void *p_user_data) {
+  void Engine::onUncapturedError(WGPUErrorType error_type, const char *message, void *p_user_data) {
     (void)p_user_data;
-    auto error_type_str = get_error_type_str(static_cast<wgpu::ErrorType>(error_type));
+    auto error_type_str = getErrorTypeStr(static_cast<wgpu::ErrorType>(error_type));
     PANIC("Uncaptured device error: type {}\nmessage: {}", error_type_str, message);
   }
-  const char *Engine::get_error_type_str(wgpu::ErrorType error_type) {
+  const char *Engine::getErrorTypeStr(wgpu::ErrorType error_type) {
     switch (error_type) {
       case wgpu::ErrorType::NoError: 
         return "NoError";
@@ -243,14 +241,14 @@ namespace broccoli {
   }
 }
 namespace broccoli {
-  void Engine::push_activity_impl(Activity::BuildCb build_cb) {
+  void Engine::pushActivityImpl(Activity::BuildCb build_cb) {
     if (!m_activity_stack.empty()) {
       m_activity_stack.top()->deactivate();
     }
     m_activity_stack.emplace(build_cb());
     m_activity_stack.top()->activate();
   }
-  void Engine::swap_activity_impl(Activity::BuildCb build_cb) {
+  void Engine::swapActivityImpl(Activity::BuildCb build_cb) {
     CHECK(!m_activity_stack.empty(), "Expected activity stack to not be empty on 'swap'");
     m_activity_stack.top()->deactivate();
     {
@@ -262,7 +260,7 @@ namespace broccoli {
     }
     m_activity_stack.top()->activate();
   }
-  void Engine::pop_activity_impl() {
+  void Engine::popActivityImpl() {
     CHECK(!m_activity_stack.empty(), "Expected activity stack to not be empty on 'pop'");
     m_activity_stack.top()->deactivate();
     m_activity_stack.pop();

@@ -31,7 +31,7 @@ namespace broccoli {
   public:
     virtual void activate();
     virtual void update(double dt_sec);
-    virtual void fixed_update(double dt_sec);
+    virtual void fixedUpdate(double dt_sec);
     virtual void draw(Renderer &device);
     virtual void deactivate();
   };
@@ -60,23 +60,23 @@ namespace broccoli {
   public:
     void halt();
   public:
-    void push_activity(Activity::BuildCb activity);
-    void swap_activity(Activity::BuildCb activity);
-    void pop_activity();
+    void pushActivity(Activity::BuildCb activity);
+    void swapActivity(Activity::BuildCb activity);
+    void popActivity();
   private:
-    void dispatch_events();
+    void dispatchEvents();
     void draw();
     void update();
-    void update_activity_stack();
+    void updateActivityStack();
   private:
-    static wgpu::Adapter request_adapter(wgpu::Instance instance, wgpu::RequestAdapterOptions const *options);
-    static wgpu::Device request_device(wgpu::Adapter adapter, wgpu::DeviceDescriptor const *descriptor);
+    static wgpu::Adapter requestAdapter(wgpu::Instance instance, wgpu::RequestAdapterOptions const *options);
+    static wgpu::Device requestDevice(wgpu::Adapter adapter, wgpu::DeviceDescriptor const *descriptor);
   private:
-    static void on_uncaptured_error(WGPUErrorType error_type, const char *message, void *p_user_data);
-    static const char *get_error_type_str(wgpu::ErrorType error_type);
+    static void onUncapturedError(WGPUErrorType error_type, const char *message, void *p_user_data);
+    static const char *getErrorTypeStr(wgpu::ErrorType error_type);
   private:
-    void push_activity_impl(Activity::BuildCb build_cb);
-    void swap_activity_impl(Activity::BuildCb build_cb);
-    void pop_activity_impl();
+    void pushActivityImpl(Activity::BuildCb build_cb);
+    void swapActivityImpl(Activity::BuildCb build_cb);
+    void popActivityImpl();
 	};
 }

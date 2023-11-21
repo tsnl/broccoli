@@ -1,31 +1,17 @@
 #include "broccoli/draw.hh"
 
-#include <iostream>
+//
+// Static helpers:
+//
 
 namespace broccoli {
-  wgpu::CommandEncoderDescriptor Renderer::s_command_encoder_descriptor = {
+  static wgpu::CommandEncoderDescriptor s_command_encoder_descriptor = {
     .nextInChain = nullptr, 
     .label = "Broccoli.Renderer.CommandEncoder",
   };
-  Renderer::Renderer(wgpu::Device device, wgpu::TextureView texture_view)
-  : m_command_encoder(device.CreateCommandEncoder(&s_command_encoder_descriptor)),
-    m_texture_view(texture_view),
-    m_device(device)
-  {}
-  Renderer::~Renderer() {
-    auto command_buffer = m_command_encoder.Finish();
-    m_device.GetQueue().Submit(1, &command_buffer);
-  }
-  RenderPass3D Renderer::begin_render_pass_3d() const {
-    return {m_command_encoder, m_texture_view, glm::dvec3{1.0, 0.0, 1.0}};
-  }
-  RenderPass3D Renderer::begin_render_pass_3d(glm::dvec3 clear_color) const {
-    return {m_command_encoder, m_texture_view, clear_color};
-  }
 }
-
 namespace broccoli {
-  wgpu::RenderPassEncoder RenderPass3D::new_rp_encoder(
+  static wgpu::RenderPassEncoder new_rp_encoder(
     wgpu::CommandEncoder command_encoder, 
     wgpu::TextureView texture_view,
     glm::dvec3 clear_color
@@ -47,12 +33,38 @@ namespace broccoli {
     };
     return command_encoder.BeginRenderPass(&rp_descriptor);
   }
+}
+
+//
+// Interface:
+//
+
+namespace broccoli {
+  Renderer::Renderer(wgpu::Device device, wgpu::TextureView texture_view)
+  : m_command_encoder(device.CreateCommandEncoder(&s_command_encoder_descriptor)),
+    m_texture_view(texture_view),
+    m_device(device)
+  {}
+  Renderer::~Renderer() {
+    auto command_buffer = m_command_encoder.Finish();
+    m_device.GetQueue().Submit(1, &command_buffer);
+  }
+  RenderPass3D Renderer::beginRenderPass3D() const {
+    return {m_command_encoder, m_texture_view, glm::dvec3{1.0, 0.0, 1.0}};
+  }
+  RenderPass3D Renderer::beginRenderPass3D(glm::dvec3 clear_color) const {
+    return {m_command_encoder, m_texture_view, clear_color};
+  }
+}
+
+namespace broccoli {
   RenderPass3D::RenderPass3D(
     wgpu::CommandEncoder command_encoder, 
     wgpu::TextureView texture_view,
     glm::dvec3 clear_color
   )
-  : m_render_pass_encoder(new_rp_encoder(command_encoder, texture_view, clear_color))
+  : m_command_encoder(command_encoder),
+    m_render_pass_encoder(new_rp_encoder(command_encoder, texture_view, clear_color))
   {}
   RenderPass3D::~RenderPass3D() {
     m_render_pass_encoder.End();
