@@ -2,8 +2,6 @@
 #include <thread>
 #include <chrono>
 
-#include "SDL.h"
-
 #include "broccoli/kernel.hh"
 
 int main() {
