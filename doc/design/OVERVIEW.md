@@ -15,12 +15,20 @@
     - The Legend of Zelda, Wind-Waker
     - Minecraft
 
-Gameplay can be succinctly described as: Monster Hunter meets tower defense. <br/>
-- The player starts with a team of hunters, which are agents that execute a series of tasks.
-- The player can construct buildings, engage in combat with enemies, and gather resources.
-  - Buildings include defensive fortifications (towers), walls, resource-processing hubs, buff areas, and more.
-  - Combat yields special resources that can be used to craft upgraded equipment for hunters.
-  - Resources can be used to purchase additional hunters.
-- The player should explore and establish multiple settlements.
-- Periodically, giant "legendary" monsters will appear that can either be hunted, repelled, or just ignored.
-  - Legendary monsters yield special material rewards.
+Gameplay is primarily shaped by two constraints:
+- We would like to play with a controller.
+- We would like the budget for this game to be as low as possible, i.e. no complex artwork or assets needed.
+
+Thus, opt for the following approach:
+- Third-person character controller.
+- Resource gathering (like Monster Hunter)
+- Construction
+  - Trains (conveyor belts or half-open pipes) to transport resources.
+  - Towers to defend against monsters
+  - Monitoring: can alert user when a large monster enters an area
+  - Terraforming
+    - Dams can remove water from a downstream area
+    - Can introduce water into an area
+- Monsters to hunt
+  - Monsters are very smart: they will try to interfere with resource gathering to their benefit. <br/>
+    E.g. a monster may intercept a train of resources to eat the resources and gain a buff.
