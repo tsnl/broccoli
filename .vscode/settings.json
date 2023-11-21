@@ -11,6 +11,9 @@
     "__hash_table": "cpp",
     "optional": "cpp",
     "queue": "cpp",
-    "iostream": "cpp"
+    "iostream": "cpp",
+    "*.inc": "cpp",
+    "deque": "cpp",
+    "unordered_map": "cpp"
   }
 }

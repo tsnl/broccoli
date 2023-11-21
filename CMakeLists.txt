@@ -12,6 +12,7 @@ set(FETCHCONTENT_QUIET OFF)
 include("cmake/FetchDawn.cmake")
 include("cmake/FetchGlm.cmake")
 include("cmake/FetchFmt.cmake")
+include("cmake/FetchRobinHoodHashing.cmake")
 
 #
 # Copying assets to the output folder:
@@ -31,6 +32,5 @@ add_strict_executable(
   "src/broccoli/draw.cc"
 )
 target_include_directories(broccoli PRIVATE "inc")
-target_link_libraries(broccoli PRIVATE glm)
+target_link_libraries(broccoli PRIVATE glm fmt robin_hood)
 target_link_libraries(broccoli PRIVATE dawn_proc dawn_glfw dawn_native dawncpp)
-target_link_libraries(broccoli PRIVATE fmt::fmt)
