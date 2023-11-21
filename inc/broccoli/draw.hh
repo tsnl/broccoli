@@ -4,12 +4,16 @@
 #include "glm/vec3.hpp"
 
 namespace broccoli {
-  class Frame;
+  class Engine;
+}
+namespace broccoli {
+  class Renderer;
   class RenderPass3D;
 }
 
 namespace broccoli {
   class Renderer {
+    friend Engine;
   private:
     wgpu::CommandEncoder m_command_encoder;
     wgpu::TextureView m_texture_view;
@@ -17,6 +21,9 @@ namespace broccoli {
   public:
     Renderer(wgpu::Device device, wgpu::TextureView texture_view);
     ~Renderer();
+  private:
+    static void initStaticResources(wgpu::Device device);
+    static void dropStaticResources();
   public:
     RenderPass3D beginRenderPass3D() const;
     RenderPass3D beginRenderPass3D(glm::dvec3 clear_color) const;
@@ -36,5 +43,8 @@ namespace broccoli {
     RenderPass3D(RenderPass3D const &other) = delete;
     RenderPass3D(RenderPass3D &&other) = default;
     ~RenderPass3D();
+  private:
+    static void initStaticResources(wgpu::Device device);
+    static void dropStaticResources();
   };
 }

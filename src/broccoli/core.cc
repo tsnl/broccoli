@@ -1,9 +1,14 @@
 #include "broccoli/core.hh"
 
 #include <iostream>
+#include <fstream>
 #include <format>
 
 #include <cstdlib>
+
+//
+// Panic, Check:
+//
 
 namespace broccoli {
   void panic(std::string message, const char *file, int64_t line) {
@@ -21,5 +26,27 @@ namespace broccoli {
     if (!condition) [[unlikely]] {
       panic(fmt::format("check failed: {}\n- condition: {}", more(), codestr), file, line);
     }
+  }
+}
+
+//
+// File I/O:
+//
+
+namespace broccoli {
+  std::string readTextFile(const char *file_path) {
+    std::ifstream f{file_path};
+    CHECK(
+      f.good(), 
+      [file_path] () { return fmt::format("Failed to open text file:\nfilepath: {}", file_path); }
+    );
+    std::string res;
+    f.seekg(0, std::ios_base::end);
+    auto file_size = f.tellg();
+    res.resize(1 + file_size);
+    f.seekg(0, std::ios_base::beg);
+    f.read(res.data(), file_size);
+    res[file_size] = '\0';
+    return res;
   }
 }

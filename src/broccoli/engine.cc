@@ -84,6 +84,8 @@ namespace broccoli {
       .presentMode = wgpu::PresentMode::Mailbox,
     };
     m_wgpu_swapchain = m_wgpu_device.CreateSwapChain(m_wgpu_surface, &swapchain_descriptor);
+
+    Renderer::initStaticResources(m_wgpu_device);
   }
   Engine::~Engine() {
     m_wgpu_swapchain.Release();

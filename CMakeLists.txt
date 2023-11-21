@@ -14,6 +14,12 @@ include("cmake/FetchGlm.cmake")
 include("cmake/FetchFmt.cmake")
 
 #
+# Copying assets to the output folder:
+#
+
+file(COPY "res" DESTINATION "${CMAKE_BINARY_DIR}")
+
+#
 # Build targets:
 #
 
