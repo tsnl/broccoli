@@ -20,8 +20,7 @@ Gameplay is primarily shaped by two constraints:
 - We would like the budget for this game to be as low as possible, i.e. no complex artwork or assets needed.
 
 Thus, opt for the following approach:
-- Third-person character controller.
-- Resource gathering (like Monster Hunter)
+- Resource gathering (much like Monster Hunter)
 - Construction
   - Trains (conveyor belts or half-open pipes) to transport resources.
   - Towers to defend against monsters
@@ -32,3 +31,4 @@ Thus, opt for the following approach:
 - Monsters to hunt
   - Monsters are very smart: they will try to interfere with resource gathering to their benefit. <br/>
     E.g. a monster may intercept a train of resources to eat the resources and gain a buff.
+  - Occasionally, legendary monsters will appear, prompting the player to focus on this confrontation.

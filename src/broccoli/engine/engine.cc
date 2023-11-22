@@ -1,4 +1,6 @@
-#include "broccoli/engine.hh"
+#include "broccoli/engine/engine.hh"
+
+#include <iostream>
 
 #include "webgpu/webgpu_cpp.h"
 #include "webgpu/webgpu_glfw.h"
@@ -11,11 +13,21 @@
 //
 
 namespace broccoli {
+  Activity::Activity(Engine &engine)
+  : m_engine(engine)
+  {}
+}
+namespace broccoli {
   void Activity::activate() {}
   void Activity::update(double dt_sec) { (void)dt_sec; }
   void Activity::fixedUpdate(double dt_sec) { (void)dt_sec; }
-  void Activity::draw(Renderer &device) { (void)device; }
+  void Activity::draw(RenderFrame &frame) { (void)frame; }
   void Activity::deactivate() {}
+}
+namespace broccoli {
+  Engine &Activity::engine() {
+    return m_engine;
+  }
 }
 
 //
@@ -30,11 +42,13 @@ namespace broccoli {
     m_wgpu_adapter(nullptr),
     m_wgpu_device(nullptr),
     m_wgpu_swapchain(nullptr),
+    m_framebuffer_size(),
     m_activity_stack(),
     m_activity_stack_action_fifo(),
     m_prev_update_timestamp(0.0),
     m_fixed_update_accum_time(0.0),
     m_fixed_update_delta_sec(1.0 / fixed_update_hz),
+    m_renderer(nullptr),
     m_is_running(false)
   {
     CHECK(glfwInit(), "Failed to initialize GLFW");
@@ -50,6 +64,7 @@ namespace broccoli {
 
     int framebuffer_width, framebuffer_height;
     glfwGetFramebufferSize(m_glfw_window, &framebuffer_width, &framebuffer_height);
+    m_framebuffer_size = glm::ivec2{framebuffer_width, framebuffer_height};
 
     wgpu::InstanceDescriptor instance_descriptor = {.nextInChain = nullptr};
     m_wgpu_instance = wgpu::CreateInstance(&instance_descriptor);
@@ -64,15 +79,14 @@ namespace broccoli {
     wgpu::DeviceDescriptor device_descriptor = {
       .nextInChain = nullptr,
       .label = "Broccoli.Kernel.DeviceDescriptor",
-      .requiredFeaturesCount = 0,
-      .requiredLimits = nullptr,
       .defaultQueue = {
         .nextInChain = nullptr,
         .label = "Broccoli.Kernel.DefaultQueue",
       },
     };
     m_wgpu_device = requestDevice(m_wgpu_adapter, &device_descriptor);
-    m_wgpu_device.SetUncapturedErrorCallback(Engine::onUncapturedError, nullptr);
+    m_wgpu_device.SetUncapturedErrorCallback(Engine::onUncapturedWgpuError, nullptr);
+    m_wgpu_device.SetLoggingCallback(Engine::onWgpuLog, nullptr);
 
     wgpu::SwapChainDescriptor swapchain_descriptor = {
       .nextInChain = nullptr,
@@ -85,13 +99,9 @@ namespace broccoli {
     };
     m_wgpu_swapchain = m_wgpu_device.CreateSwapChain(m_wgpu_surface, &swapchain_descriptor);
 
-    Renderer::initStaticResources(m_wgpu_device);
+    m_renderer = std::make_unique<RenderManager>(m_wgpu_device);
   }
   Engine::~Engine() {
-    m_wgpu_swapchain.Release();
-    m_wgpu_surface.Release();
-    m_wgpu_adapter.Release();
-    m_wgpu_instance.Release();
     glfwDestroyWindow(m_glfw_window);
     glfwTerminate();
   }
@@ -130,20 +140,28 @@ namespace broccoli {
   }
 }
 namespace broccoli {
+  MeshBuilder Engine::createMeshBuilder() {
+    return {m_wgpu_device};
+  }
+}
+namespace broccoli {
   void Engine::dispatchEvents() {
     glfwPollEvents();
   }
   void Engine::draw() {
-    wgpu::TextureView target_texture_view = m_wgpu_swapchain.GetCurrentTextureView();
-    CHECK(target_texture_view != nullptr, "Cannot acquire next swapchain texture view");
-    if (!m_activity_stack.empty()) {
-      {
-        Renderer renderer{m_wgpu_device, target_texture_view};
-        m_activity_stack.top()->draw(renderer);
-        // 'renderer' goes out of scope here, resulting in the associated command buffer being submitted.
+    {
+      wgpu::TextureView target_texture_view = m_wgpu_swapchain.GetCurrentTextureView();
+      CHECK(target_texture_view != nullptr, "Cannot acquire next swapchain texture view");
+      if (!m_activity_stack.empty()) {
+        {
+          RenderTarget render_target{target_texture_view, m_framebuffer_size};
+          RenderFrame frame = m_renderer->frame(render_target);
+          m_activity_stack.top()->draw(frame);
+        }
       }
+      // 'target_texture_view' goes out of scope here, resulting in the destructor being invoked and the view being
+      // released.
     }
-    target_texture_view.Release();
     m_wgpu_swapchain.Present();
   }
   void Engine::update() {
@@ -218,27 +236,47 @@ namespace broccoli {
   }
 }
 namespace broccoli {
-  void Engine::onUncapturedError(WGPUErrorType error_type, const char *message, void *p_user_data) {
+  void Engine::onUncapturedWgpuError(WGPUErrorType error_type, const char *message, void *p_user_data) {
     (void)p_user_data;
-    auto error_type_str = getErrorTypeStr(static_cast<wgpu::ErrorType>(error_type));
-    PANIC("Uncaptured device error: type {}\nmessage: {}", error_type_str, message);
+    PANIC("Uncaptured device error: type {}\nmessage: {}", getErrorTypeStr(error_type), message);
   }
-  const char *Engine::getErrorTypeStr(wgpu::ErrorType error_type) {
+  void Engine::onWgpuLog(WGPULoggingType log_type, const char *message, void* p_user_data) {
+    (void)p_user_data;
+    std::cerr << "WGPU: " << getLoggingTypeStr(log_type) << ": " << message << std::endl;
+    if (log_type == WGPULoggingType_Error) {
+      PANIC("Fatal WGPU logging detected. See above.");
+    }
+  }
+  const char *Engine::getErrorTypeStr(WGPUErrorType error_type) {
     switch (error_type) {
-      case wgpu::ErrorType::NoError: 
+      case WGPUErrorType_NoError: 
         return "NoError";
-      case wgpu::ErrorType::Validation: 
+      case WGPUErrorType_Validation: 
         return "Validation";
-      case wgpu::ErrorType::OutOfMemory: 
+      case WGPUErrorType_OutOfMemory: 
         return "OutOfMemory";
-      case wgpu::ErrorType::Internal: 
+      case WGPUErrorType_Internal: 
         return "Internal";
-      case wgpu::ErrorType::Unknown: 
+      case WGPUErrorType_Unknown: 
         return "Unknown";
-      case wgpu::ErrorType::DeviceLost: 
+      case WGPUErrorType_DeviceLost: 
         return "DeviceLost";
       default:
         return "<NotImplemented>"; 
+    }
+  }
+  const char *Engine::getLoggingTypeStr(WGPULoggingType logging_type) {
+    switch (logging_type) {
+      case WGPULoggingType_Error:
+        return "ERROR";
+      case WGPULoggingType_Warning:
+        return "WARNING";
+      case WGPULoggingType_Info:
+        return "INFO";
+      case WGPULoggingType_Verbose:
+        return "VERBOSE";
+      default:
+        return "<NotImplemented>";
     }
   }
 }
@@ -247,14 +285,14 @@ namespace broccoli {
     if (!m_activity_stack.empty()) {
       m_activity_stack.top()->deactivate();
     }
-    m_activity_stack.emplace(build_cb());
+    m_activity_stack.emplace(build_cb(*this));
     m_activity_stack.top()->activate();
   }
   void Engine::swapActivityImpl(Activity::BuildCb build_cb) {
     CHECK(!m_activity_stack.empty(), "Expected activity stack to not be empty on 'swap'");
     m_activity_stack.top()->deactivate();
     {
-      auto new_activity = build_cb();
+      auto new_activity = build_cb(*this);
       auto old_activity = std::move(m_activity_stack.top());
       m_activity_stack.pop();
       m_activity_stack.push(std::move(new_activity));

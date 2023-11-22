@@ -1,0 +1,9 @@
+[submodule "dep/dawn"]
+	path = dep/dawn
+	url = https://dawn.googlesource.com/dawn
+	branch = chromium/6141
+
+[submodule "dep/depot_tools"]
+	path = dep/depot_tools
+	url = https://chromium.googlesource.com/chromium/tools/depot_tools.git
+  branch = chrome/4147
