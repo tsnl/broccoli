@@ -1,7 +1,8 @@
 function(config_strict_target target_name)
 	set_target_properties("${target_name}" PROPERTIES CXX_STANDARD 20)
 	if (MSVC)
-    target_compile_options("${target_name}" PRIVATE "/W4")
+    target_compile_options("${target_name}" PRIVATE "/Wall" "/W4")
+		target_compile_options("${target_name}" PRIVATE "/wd4201")		# non-standard extensions used
   elseif (CMAKE_CXX_COMPILER_ID MATCHES "[Cc]lang")
 		target_compile_options("${target_name}" PRIVATE "-Wall" "-Wextra" "-Wpedantic" "-Werror")
     target_compile_options("${target_name}" PRIVATE "-Wno-error=deprecated-builtins" "-Wno-error=deprecated-volatile")

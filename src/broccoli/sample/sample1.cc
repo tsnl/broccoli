@@ -1,5 +1,7 @@
 #include "broccoli/sample/sample1.hh"
 
+#include <iostream>
+
 namespace broccoli {
   SampleActivity1::SampleActivity1(broccoli::Engine &engine)
   : broccoli::Activity(engine),

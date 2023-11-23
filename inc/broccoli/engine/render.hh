@@ -142,9 +142,9 @@ namespace broccoli {
     struct Vtx { glm::dvec3 offset; glm::dvec4 color; };
   private:
     wgpu::Device &m_wgpu_device;
-    robin_hood::unordered_map<Vertex, size_t> m_vtx_compression_map;
+    robin_hood::unordered_map<Vertex, uint32_t> m_vtx_compression_map;
     std::vector<Vertex> m_vtx_buf;
-    std::vector<uint16_t> m_idx_buf;
+    std::vector<uint32_t> m_idx_buf;
   private:
     MeshBuilder(wgpu::Device &device);
   public:
@@ -155,7 +155,7 @@ namespace broccoli {
     void triangle(Vtx v1, Vtx v2, Vtx v3);
     Mesh finish();
   private:
-    uint16_t vertex(glm::dvec3 offset, glm::dvec4 color, uint32_t packed_normal);
+    uint32_t vertex(glm::dvec3 offset, glm::dvec4 color, uint32_t packed_normal);
   private:
     static glm::tvec4<int16_t> pack_offset(glm::dvec3 offset);
     static glm::tvec4<uint8_t> pack_color(glm::dvec4 color);

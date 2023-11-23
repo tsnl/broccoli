@@ -9,7 +9,7 @@ include("cmake/Strict.cmake")
 #
 
 set(FETCHCONTENT_QUIET OFF)
-add_subdirectory("dep/dawn")
+include("cmake/FetchDawn.cmake")
 include("cmake/FetchGlm.cmake")
 include("cmake/FetchFmt.cmake")
 include("cmake/FetchRobinHoodHashing.cmake")

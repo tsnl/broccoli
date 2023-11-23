@@ -3,7 +3,7 @@
 #include <iostream>
 #include <deque>
 #include <sstream>
-#include <cmath>
+#include <limits>
 
 #include "glm/gtc/packing.hpp"
 
@@ -63,7 +63,7 @@ namespace broccoli {
     wgpu::TextureView texture_view,
     std::optional<glm::dvec3> clear_color
   ) {
-    wgpu::Color wgpu_clear_color;
+    wgpu::Color wgpu_clear_color{};
     if (clear_color.has_value()) {
       auto cc = clear_color.value();
       wgpu_clear_color = wgpu::Color{.r=cc.x, .g=cc.y, .b=cc.z, .a=1.0};
@@ -175,7 +175,7 @@ namespace broccoli {
         .visibility = wgpu::ShaderStage::Vertex,
         .buffer = wgpu::BufferBindingLayout {
           .type = wgpu::BufferBindingType::Uniform,
-          .minBindingSize = sizeof(glm::mat4x4),
+          .minBindingSize = sizeof(glm::mat4x4) * R3D_INSTANCE_CAPACITY,
         }
       },
     };
@@ -215,12 +215,6 @@ namespace broccoli {
       .blend = &blend_state,
       .writeMask = wgpu::ColorWriteMask::All,
     };
-    std::array<wgpu::ConstantEntry, 2> constant_entries = {
-      wgpu::ConstantEntry {
-        .key = "INSTANCE_COUNT",
-        .value = R3D_INDEX_BUFFER_CAPACITY,
-      }
-    };
     std::array<wgpu::VertexAttribute, 3> vertex_buffer_attrib_layout = {
       wgpu::VertexAttribute{.format=wgpu::VertexFormat::Sint16x4, .offset=offsetof(Vertex, offset), .shaderLocation=0},
       wgpu::VertexAttribute{.format=wgpu::VertexFormat::Uint8x4, .offset=offsetof(Vertex, color), .shaderLocation=1},
@@ -236,15 +230,13 @@ namespace broccoli {
       .nextInChain = nullptr,
       .module = m_wgpu_shader_module,
       .entryPoint = R3D_SHADER_VS_ENTRY_POINT_NAME,
-      .constantCount = constant_entries.size(),
-      .constants = constant_entries.data(),
       .bufferCount = 1,
       .buffers = &vertex_buffer_layout,
     };
     wgpu::PrimitiveState primitive_state = {
       .nextInChain = nullptr,
       .topology = wgpu::PrimitiveTopology::TriangleList,
-      .stripIndexFormat = wgpu::IndexFormat::Uint16,
+      .stripIndexFormat = wgpu::IndexFormat::Undefined,
       .frontFace = wgpu::FrontFace::CCW,
       .cullMode = wgpu::CullMode::Back,
     };
@@ -269,8 +261,6 @@ namespace broccoli {
       .nextInChain = nullptr,
       .module = m_wgpu_shader_module,
       .entryPoint = R3D_SHADER_FS_ENTRY_POINT_NAME,
-      .constantCount = constant_entries.size(),
-      .constants = constant_entries.data(),
       .targetCount = 1,
       .targets = &color_target
     };
@@ -292,10 +282,12 @@ namespace broccoli {
       wgpu::BindGroupEntry {
         .binding = 0,
         .buffer = m_wgpu_camera_uniform_buffer,
+        .size = sizeof(CameraUniform),
       },
       wgpu::BindGroupEntry {
         .binding = 1,
         .buffer = m_wgpu_transform_uniform_buffer,
+        .size = sizeof(glm::mat4x4) * R3D_INSTANCE_CAPACITY,
       },
     };
     wgpu::BindGroupDescriptor bind_group_descriptor = {
@@ -364,14 +356,14 @@ namespace broccoli {
   : m_manager(renderer),
     m_target(target)
   {
-    const float fovy_rad = (camera.fovy_deg / 360.0f) * (2.0f * M_PI);
+    const float fovy_rad = (camera.fovy_deg / 360.0f) * (2.0f * static_cast<float>(M_PI));
     const float aspect = target.size.x / static_cast<float>(target.size.y);
     const CameraUniform buf = {
       .view_matrix = glm::inverse(camera.transform),
       .camera_cot_half_fovy = 1.0f / std::tanf(fovy_rad / 2.0f),
       .camera_aspect_inv = 1.0f / aspect,
-      .camera_zmin = 000.050,
-      .camera_zmax = 100.000,
+      .camera_zmin = 000.050f,
+      .camera_zmax = 100.000f,
       .camera_logarithmic_z_scale = 1.0,
     };
     auto queue = m_manager.wgpu_device().GetQueue();
@@ -393,9 +385,9 @@ namespace broccoli {
     {
       rp.SetPipeline(m_manager.wgpu_render_pipeline());
       rp.SetBindGroup(0, m_manager.wgpu_bind_group_0());
-      rp.SetIndexBuffer(mesh.idx_buffer, wgpu::IndexFormat::Uint16);
+      rp.SetIndexBuffer(mesh.idx_buffer, wgpu::IndexFormat::Uint32);
       rp.SetVertexBuffer(0, mesh.vtx_buffer);
-      rp.DrawIndexed(mesh.idx_count, transform.size());
+      rp.DrawIndexed(mesh.idx_count, static_cast<uint32_t>(transform.size()));
     }
     rp.End();
     wgpu::CommandBuffer command_buffer = command_encoder.Finish();
@@ -445,7 +437,7 @@ namespace broccoli {
       .nextInChain = nullptr,
       .label = "Broccoli.Mesh.IndexBuffer",
       .usage = wgpu::BufferUsage::Index | wgpu::BufferUsage::CopyDst,
-      .size = m_idx_buf.size() * sizeof(uint16_t),
+      .size = m_idx_buf.size() * sizeof(uint32_t),
     };
     Mesh mesh = {
       .vtx_buffer = m_wgpu_device.CreateBuffer(&vtx_buf_descriptor),
@@ -454,11 +446,13 @@ namespace broccoli {
       .idx_count = static_cast<uint32_t>(m_idx_buf.size()),
     };
     wgpu::Queue queue = m_wgpu_device.GetQueue();
-    queue.WriteBuffer(mesh.vtx_buffer, 0, m_vtx_buf.data(), m_vtx_buf.size() * sizeof(Vertex));
-    queue.WriteBuffer(mesh.idx_buffer, 0, m_idx_buf.data(), m_idx_buf.size() * sizeof(uint16_t));
+    auto vtx_buf_size = m_vtx_buf.size() * sizeof(Vertex);
+    auto idx_buf_size = m_idx_buf.size() * sizeof(uint32_t);
+    queue.WriteBuffer(mesh.vtx_buffer, 0, m_vtx_buf.data(), vtx_buf_size);
+    queue.WriteBuffer(mesh.idx_buffer, 0, m_idx_buf.data(), idx_buf_size);
     return mesh;
   }
-  uint16_t MeshBuilder::vertex(glm::dvec3 offset, glm::dvec4 color, uint32_t packed_normal) {
+  uint32_t MeshBuilder::vertex(glm::dvec3 offset, glm::dvec4 color, uint32_t packed_normal) {
     auto packed_offset = pack_offset(offset);
     auto packed_color = pack_color(color);
     broccoli::Vertex packed_vertex = {.offset=packed_offset, .color=packed_color, .normal=packed_normal};
@@ -468,9 +462,13 @@ namespace broccoli {
     }
     CHECK(
       m_vtx_compression_map.size() == m_vtx_buf.size(),
-      "expected vertex compression map and vertex buffer to be parallel"
+      "Expected vertex compression map and vertex buffer to be parallel."
     );
-    auto new_vtx_idx = static_cast<uint16_t>(m_vtx_compression_map.size());
+    CHECK(
+      m_vtx_buf.size() < UINT32_MAX,
+      "Overflow of vertex indices detected: too many vertices inserted."
+    );
+    auto new_vtx_idx = static_cast<uint32_t>(m_vtx_compression_map.size());
     m_vtx_compression_map.insert({packed_vertex, new_vtx_idx});
     m_vtx_buf.emplace_back(packed_vertex);
     return new_vtx_idx;

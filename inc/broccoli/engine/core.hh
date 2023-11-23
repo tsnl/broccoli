@@ -6,7 +6,10 @@
 #include <span>
 #include <concepts>
 #include <type_traits>
+
+#define _USE_MATH_DEFINES
 #include <cstdint>
+#include <cmath>
 
 #include "fmt/std.h"
 

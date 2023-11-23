@@ -162,6 +162,7 @@ namespace broccoli {
       // 'target_texture_view' goes out of scope here, resulting in the destructor being invoked and the view being
       // released.
     }
+    m_wgpu_instance.ProcessEvents();
     m_wgpu_swapchain.Present();
   }
   void Engine::update() {

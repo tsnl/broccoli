@@ -1,4 +1,4 @@
-override INSTANCE_COUNT: u32 = 1024;
+const INSTANCE_COUNT: u32 = 1024;
 
 struct CameraUniform {
   view_matrix: mat4x4<f32>,
@@ -22,9 +22,9 @@ struct CameraUniform {
 struct VertexInput {
   @builtin(vertex_index) vertex_index: u32,
   @builtin(instance_index) instance_index: u32,
-  @location(0) raw_position: vec4<f32>,
-  @location(1) color: vec4<f32>,
-  @location(2) raw_normal: vec4<f32>,
+  @location(0) raw_position: vec4<i32>,
+  @location(1) raw_color: vec4<u32>,
+  @location(2) raw_normal: vec4<i32>,
 };
 struct FragmentInput {
   @builtin(position) clip_position: vec4<f32>,
@@ -40,25 +40,26 @@ struct FragmentInput {
 
 @vertex
 fn vs_main(vertex_input: VertexInput) -> FragmentInput {
-  let position = vertex_input.raw_position.xyz / 1024.0;
-  let normal = 2.0 * vertex_input.raw_normal.xyz - vec3(1.0);
+  let position = vec3<f32>(vertex_input.raw_position.xyz) / 1024.0;
+  let color = vec3<f32>(vertex_input.raw_color.xyz) / 255.0;
+  let normal = 2.0 * (vec3<f32>(vertex_input.raw_normal.xyz) / 1023.0) - 1.0;
 
   let model_matrix = u_model_mats[vertex_input.instance_index];
 
-  let world_position = model_matrix * vec4<f32>(position, 1.0);
-  let world_normal = normalize(model_matrix * vec4<f32>(normal, 1.0)).xyz;
+  let world_position = model_matrix * vec4(position, 1.0);
+  let world_normal = normalize((model_matrix * vec4<f32>(normal, 1.0)).xyz);
 
   let cam_position = u_camera.view_matrix * world_position;
-  let cam_normal = u_camera.view_matrix * world_normal;
+  let cam_normal = normalize((u_camera.view_matrix * vec4(world_normal, 1.0)).xyz);
 
-  var fi: FragmentInput;
-  fi.clip_position = perspective_projection(cam_position);
-  fi.world_position = world_position;
-  fi.color = vertex_input.color;
-  fi.cam_normal = vec4<f32>(cam_normal, 1.0f);
-  fi.world_normal = vec4<f32>(world_normal, 1.0f);
-  fi.instance_index = in.instance_index;
-  return fi;
+  var fragment_input: FragmentInput;
+  fragment_input.clip_position = perspective_projection(cam_position);
+  fragment_input.world_position = world_position;
+  fragment_input.color = vec4(color, 1.0f);
+  fragment_input.cam_normal = vec4(cam_normal, 1.0f);
+  fragment_input.world_normal = vec4(world_normal, 1.0f);
+  fragment_input.instance_index = vertex_input.instance_index;
+  return fragment_input;
 }
 
 @fragment
@@ -82,8 +83,8 @@ fn fs_main(fragment_input: FragmentInput) -> @location(0) vec4f {
 fn perspective_projection(in: vec4<f32>) -> vec4<f32> {
   let c = u_camera.camera_logarithmic_z_scale;
   return vec4<f32>(
-    +in.x * u_camera.camera_cot_half_fovy * u_camera.camera_aspect_inv,
-    +in.y * u_camera.camera_cot_half_fovy,
+    in.x * u_camera.camera_cot_half_fovy * u_camera.camera_aspect_inv,
+    in.y * u_camera.camera_cot_half_fovy,
     -in.z * log2(c * (-in.z - u_camera.camera_zmin) + 1.0f) / log2(c * (u_camera.camera_zmax - u_camera.camera_zmin) + 1.0f),
     -in.z
   );
