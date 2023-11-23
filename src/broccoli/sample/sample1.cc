@@ -6,9 +6,9 @@
 namespace broccoli {
   SampleActivity1::SampleActivity1(broccoli::Engine &engine)
   : broccoli::Activity(engine),
-    m_cube_mesh(buildCubeMesh(engine))
+    m_cube_mesh(buildTriangleMesh(engine))
   {}
-  Mesh SampleActivity1::buildCubeMesh(broccoli::Engine &engine) {
+  Mesh SampleActivity1::buildTriangleMesh(broccoli::Engine &engine) {
     auto mb = engine.createMeshBuilder();
     mb.triangle(
       {.offset=2.0*glm::dvec3{+1.00, -1.00, 0.00}, .color=glm::dvec4{1.0, 0.0, 0.0, 1.0}},

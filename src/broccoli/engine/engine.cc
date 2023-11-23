@@ -99,7 +99,7 @@ namespace broccoli {
     };
     m_wgpu_swapchain = m_wgpu_device.CreateSwapChain(m_wgpu_surface, &swapchain_descriptor);
 
-    m_renderer = std::make_unique<RenderManager>(m_wgpu_device);
+    m_renderer = std::make_unique<RenderManager>(m_wgpu_device, m_framebuffer_size);
   }
   Engine::~Engine() {
     glfwDestroyWindow(m_glfw_window);

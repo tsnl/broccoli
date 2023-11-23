@@ -37,6 +37,7 @@ target_link_libraries(broccoli-engine PUBLIC dawn_proc dawn_glfw dawn_native daw
 add_strict_library(
   broccoli-sample STATIC
   "src/broccoli/sample/sample1.cc"
+  "src/broccoli/sample/sample2.cc"
 )
 target_link_libraries(broccoli-sample PUBLIC broccoli-engine)
 

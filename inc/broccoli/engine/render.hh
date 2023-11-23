@@ -49,8 +49,10 @@ namespace broccoli {
     wgpu::PipelineLayout m_wgpu_render_pipeline_layout;
     wgpu::RenderPipeline m_wgpu_render_pipeline;
     wgpu::BindGroup m_wgpu_bind_group_0;
+    wgpu::Texture m_wgpu_depth_stencil_texture;
+    wgpu::TextureView m_wgpu_depth_stencil_texture_view;
   public:
-    RenderManager(wgpu::Device &device);
+    RenderManager(wgpu::Device &device, glm::ivec2 framebuffer_size);
   public:
     RenderManager(RenderManager const &other) = delete;
     RenderManager(RenderManager &&other) = default;
@@ -62,12 +64,14 @@ namespace broccoli {
     void initRenderPipelineLayout();
     void initRenderPipeline();
     void initBindGroup0();
+    void initDepthStencilTexture(glm::ivec2 framebuffer_size);
   public:
-    wgpu::Device const &wgpu_device();
-    wgpu::RenderPipeline const &wgpu_render_pipeline();
-    wgpu::Buffer const &wgpu_camera_uniform_buffer();
-    wgpu::Buffer const &wgpu_transform_uniform_buffer();
-    wgpu::BindGroup const &wgpu_bind_group_0();
+    wgpu::Device const &wgpu_device() const;
+    wgpu::RenderPipeline const &wgpu_render_pipeline() const;
+    wgpu::Buffer const &wgpu_camera_uniform_buffer() const;
+    wgpu::Buffer const &wgpu_transform_uniform_buffer() const;
+    wgpu::BindGroup const &wgpu_bind_group_0() const;
+    wgpu::TextureView const &wgpu_depth_stencil_texture_view() const;
   public:
     RenderFrame frame(RenderTarget target);
   };
@@ -152,9 +156,11 @@ namespace broccoli {
     MeshBuilder(MeshBuilder const &other) = delete;
     MeshBuilder(MeshBuilder &&other) = default;
   public:
-    void triangle(Vtx v1, Vtx v2, Vtx v3);
-    void triangle(Vtx v1, Vtx v2, Vtx v3, bool double_faced);
+    void triangle(Vtx v1, Vtx v2, Vtx v3, bool double_faced = false);
+    void quad(Vtx v1, Vtx v2, Vtx v3, Vtx v4, bool double_faced = false);
     Mesh finish();
+  private:
+    void singleFaceTriangle(Vtx v1, Vtx v2, Vtx v3);
   private:
     uint32_t vertex(glm::dvec3 offset, glm::dvec4 color, uint32_t packed_normal);
   private:
