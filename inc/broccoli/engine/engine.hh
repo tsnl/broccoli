@@ -57,7 +57,9 @@ namespace broccoli {
     glm::ivec2 m_framebuffer_size;
     std::stack<std::unique_ptr<Activity>> m_activity_stack;
     std::queue<std::pair<Activity::StackAction, std::optional<Activity::BuildCb>>> m_activity_stack_action_fifo;
-    double m_prev_update_timestamp;
+    double m_prev_update_timestamp_sec;
+    double m_curr_update_timestamp_sec;
+    double m_curr_update_dt_sec;
     double m_fixed_update_accum_time;
     double m_fixed_update_delta_sec;
     std::unique_ptr<RenderManager> m_renderer;
@@ -67,7 +69,6 @@ namespace broccoli {
     ~Engine();
   public:
     void run();
-  public:
     void halt();
   public:
     void pushActivity(Activity::BuildCb activity);
@@ -75,7 +76,12 @@ namespace broccoli {
     void popActivity();
   public:
     MeshBuilder createMeshBuilder();
+  public:
+    double currUpdateTimestampSec() const;
+    double currUpdateDtSec() const;
   private:
+    void beginFrame();
+    void endFrame();
     void dispatchEvents();
     void draw();
     void update();

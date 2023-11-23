@@ -45,7 +45,7 @@ namespace broccoli {
     m_framebuffer_size(),
     m_activity_stack(),
     m_activity_stack_action_fifo(),
-    m_prev_update_timestamp(0.0),
+    m_prev_update_timestamp_sec(0.0),
     m_fixed_update_accum_time(0.0),
     m_fixed_update_delta_sec(1.0 / fixed_update_hz),
     m_renderer(nullptr),
@@ -110,15 +110,16 @@ namespace broccoli {
   void Engine::run() {
     updateActivityStack();
     draw();
-    m_prev_update_timestamp = glfwGetTime();
+    m_prev_update_timestamp_sec = glfwGetTime();
     m_fixed_update_accum_time = 0.0;
     m_is_running = true;
     glfwShowWindow(m_glfw_window);
     while (!glfwWindowShouldClose(m_glfw_window)) {
+      beginFrame();
       dispatchEvents();
       update();
       draw();
-      updateActivityStack();
+      endFrame();
     }
   }
 }
@@ -145,6 +146,22 @@ namespace broccoli {
   }
 }
 namespace broccoli {
+  double Engine::currUpdateTimestampSec() const {
+    return m_curr_update_timestamp_sec;
+  }
+  double Engine::currUpdateDtSec() const {
+    return m_curr_update_dt_sec;
+  }
+}
+namespace broccoli {
+  void Engine::beginFrame() {
+    m_curr_update_timestamp_sec = glfwGetTime();
+    m_curr_update_dt_sec = m_curr_update_timestamp_sec - m_prev_update_timestamp_sec;
+    m_prev_update_timestamp_sec = m_curr_update_timestamp_sec;
+  }
+  void Engine::endFrame() {
+    updateActivityStack();
+  }
   void Engine::dispatchEvents() {
     glfwPollEvents();
   }
@@ -166,17 +183,14 @@ namespace broccoli {
     m_wgpu_swapchain.Present();
   }
   void Engine::update() {
-    double curr_update_timestamp = glfwGetTime();
-    double dt_sec = curr_update_timestamp - m_prev_update_timestamp;
-    m_fixed_update_accum_time += dt_sec;
+    m_fixed_update_accum_time += m_curr_update_dt_sec;
     if (!m_activity_stack.empty()) {
-      m_activity_stack.top()->update(dt_sec);
+      m_activity_stack.top()->update(m_curr_update_dt_sec);
       while (m_fixed_update_accum_time >= m_fixed_update_delta_sec) {
         m_fixed_update_accum_time -= m_fixed_update_delta_sec;
         m_activity_stack.top()->fixedUpdate(m_fixed_update_delta_sec);
       }
     }
-    m_prev_update_timestamp = curr_update_timestamp;
   }
   void Engine::updateActivityStack() {
     while (!m_activity_stack_action_fifo.empty()) {

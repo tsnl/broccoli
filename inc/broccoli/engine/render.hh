@@ -153,6 +153,7 @@ namespace broccoli {
     MeshBuilder(MeshBuilder &&other) = default;
   public:
     void triangle(Vtx v1, Vtx v2, Vtx v3);
+    void triangle(Vtx v1, Vtx v2, Vtx v3, bool double_faced);
     Mesh finish();
   private:
     uint32_t vertex(glm::dvec3 offset, glm::dvec4 color, uint32_t packed_normal);

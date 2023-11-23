@@ -410,6 +410,12 @@ namespace broccoli {
     m_vtx_buf.reserve(R3D_VERTEX_BUFFER_CAPACITY);
     m_idx_buf.reserve(R3D_INDEX_BUFFER_CAPACITY);
   }
+  void MeshBuilder::triangle(Vtx v1, Vtx v2, Vtx v3, bool double_faced) {
+    triangle(v1, v2, v3);
+    if (double_faced) {
+      triangle(v1, v3, v2);
+    }
+  }
   void MeshBuilder::triangle(Vtx v1, Vtx v2, Vtx v3) {
     auto e1 = v2.offset - v1.offset;
     auto e2 = v3.offset - v1.offset;
