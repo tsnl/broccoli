@@ -66,12 +66,12 @@ namespace broccoli {
     void initBindGroup0();
     void initDepthStencilTexture(glm::ivec2 framebuffer_size);
   public:
-    wgpu::Device const &wgpu_device() const;
-    wgpu::RenderPipeline const &wgpu_render_pipeline() const;
-    wgpu::Buffer const &wgpu_camera_uniform_buffer() const;
-    wgpu::Buffer const &wgpu_transform_uniform_buffer() const;
-    wgpu::BindGroup const &wgpu_bind_group_0() const;
-    wgpu::TextureView const &wgpu_depth_stencil_texture_view() const;
+    wgpu::Device const &wgpuDevice() const;
+    wgpu::RenderPipeline const &wgpuRenderPipeline() const;
+    wgpu::Buffer const &wgpuCameraUniformBuffer() const;
+    wgpu::Buffer const &wgpuTransformUniformBuffer() const;
+    wgpu::BindGroup const &wgpuBindGroup0() const;
+    wgpu::TextureView const &wgpuDepthStencilTextureView() const;
   public:
     RenderFrame frame(RenderTarget target);
   };

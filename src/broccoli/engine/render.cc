@@ -299,22 +299,22 @@ namespace broccoli {
   }
 }
 namespace broccoli {
-  wgpu::Device const &RenderManager::wgpu_device() const {
+  wgpu::Device const &RenderManager::wgpuDevice() const {
     return m_wgpu_device;
   }
-  wgpu::RenderPipeline const &RenderManager::wgpu_render_pipeline() const {
+  wgpu::RenderPipeline const &RenderManager::wgpuRenderPipeline() const {
     return m_wgpu_render_pipeline;
   }
-  wgpu::Buffer const &RenderManager::wgpu_camera_uniform_buffer() const {
+  wgpu::Buffer const &RenderManager::wgpuCameraUniformBuffer() const {
     return m_wgpu_camera_uniform_buffer;
   }
-  wgpu::Buffer const &RenderManager::wgpu_transform_uniform_buffer() const {
+  wgpu::Buffer const &RenderManager::wgpuTransformUniformBuffer() const {
     return m_wgpu_transform_uniform_buffer;
   }
-  wgpu::BindGroup const &RenderManager::wgpu_bind_group_0() const {
+  wgpu::BindGroup const &RenderManager::wgpuBindGroup0() const {
     return m_wgpu_bind_group_0;
   }
-  wgpu::TextureView const &RenderManager::wgpu_depth_stencil_texture_view() const {
+  wgpu::TextureView const &RenderManager::wgpuDepthStencilTextureView() const {
     return m_wgpu_depth_stencil_texture_view;
   }
 }
@@ -337,7 +337,7 @@ namespace broccoli {
 namespace broccoli {
   void RenderFrame::clear(glm::dvec3 cc) {
     wgpu::CommandEncoderDescriptor command_encoder_descriptor = {.label = "Broccoli.Renderer.Clear.CommandEncoder"};
-    wgpu::CommandEncoder command_encoder = m_manager.wgpu_device().CreateCommandEncoder(&command_encoder_descriptor);
+    wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
     wgpu::RenderPassColorAttachment rp_color_attachment = {
       .view = m_target.texture_view,
       .loadOp = wgpu::LoadOp::Clear,
@@ -345,7 +345,7 @@ namespace broccoli {
       .clearValue = wgpu::Color{.r=cc.x, .g=cc.y, .b=cc.z, .a=1.0},
     };
     wgpu::RenderPassDepthStencilAttachment rp_depth_attachment = {
-      .view = m_manager.wgpu_depth_stencil_texture_view(),
+      .view = m_manager.wgpuDepthStencilTextureView(),
       .depthLoadOp = wgpu::LoadOp::Clear,
       .depthStoreOp = wgpu::StoreOp::Store,
       .depthClearValue = 1.0f,
@@ -360,7 +360,7 @@ namespace broccoli {
     wgpu::RenderPassEncoder rp = command_encoder.BeginRenderPass(&rp_descriptor);
     rp.End();
     wgpu::CommandBuffer command_buffer = command_encoder.Finish();
-    m_manager.wgpu_device().GetQueue().Submit(1, &command_buffer);
+    m_manager.wgpuDevice().GetQueue().Submit(1, &command_buffer);
   }
   
   Renderer RenderFrame::use_camera(RenderCamera camera) {
@@ -387,8 +387,8 @@ namespace broccoli {
       .camera_zmax = 100.000f,
       .camera_logarithmic_z_scale = 1.0,
     };
-    auto queue = m_manager.wgpu_device().GetQueue();
-    queue.WriteBuffer(m_manager.wgpu_camera_uniform_buffer(), 0, &buf, sizeof(CameraUniform));
+    auto queue = m_manager.wgpuDevice().GetQueue();
+    queue.WriteBuffer(m_manager.wgpuCameraUniformBuffer(), 0, &buf, sizeof(CameraUniform));
   }
 }
 namespace broccoli {
@@ -397,18 +397,18 @@ namespace broccoli {
     draw(mesh, std::span{&identity, 1});
   }
   void Renderer::draw(Mesh mesh, std::span<glm::mat4x4> const &transform) {
-    auto queue = m_manager.wgpu_device().GetQueue();
+    auto queue = m_manager.wgpuDevice().GetQueue();
     auto uniform_buffer_size = transform.size() * sizeof(glm::mat4x4);
-    queue.WriteBuffer(m_manager.wgpu_transform_uniform_buffer(), 0, transform.data(), uniform_buffer_size);
+    queue.WriteBuffer(m_manager.wgpuTransformUniformBuffer(), 0, transform.data(), uniform_buffer_size);
     wgpu::CommandEncoderDescriptor command_encoder_descriptor = {.label = "Broccoli.Renderer.Draw.CommandEncoder"};
-    wgpu::CommandEncoder command_encoder = m_manager.wgpu_device().CreateCommandEncoder(&command_encoder_descriptor);
+    wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
     wgpu::RenderPassColorAttachment rp_color_attachment = {
       .view = m_target.texture_view,
       .loadOp = wgpu::LoadOp::Clear,
       .storeOp = wgpu::StoreOp::Store,
     };
     wgpu::RenderPassDepthStencilAttachment rp_depth_attachment = {
-      .view = m_manager.wgpu_depth_stencil_texture_view(),
+      .view = m_manager.wgpuDepthStencilTextureView(),
       .depthLoadOp = wgpu::LoadOp::Load,
       .depthStoreOp = wgpu::StoreOp::Store,
     };
@@ -421,8 +421,8 @@ namespace broccoli {
     };
     wgpu::RenderPassEncoder rp = command_encoder.BeginRenderPass(&rp_descriptor);
     {
-      rp.SetPipeline(m_manager.wgpu_render_pipeline());
-      rp.SetBindGroup(0, m_manager.wgpu_bind_group_0());
+      rp.SetPipeline(m_manager.wgpuRenderPipeline());
+      rp.SetBindGroup(0, m_manager.wgpuBindGroup0());
       rp.SetIndexBuffer(mesh.idx_buffer, wgpu::IndexFormat::Uint32);
       rp.SetVertexBuffer(0, mesh.vtx_buffer);
       rp.DrawIndexed(mesh.idx_count, static_cast<uint32_t>(transform.size()));
