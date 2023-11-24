@@ -1,3 +1,20 @@
+# Requires: 'BROCCOLI_ROOT'
+
+# Running 'gclient' to setup Dawn.
+# FETCH_DEPENDENCIES does not work as of writing this file.
+if (NOT EXISTS "${BROCCOLI_ROOT}/dep/dawn/.gclient")
+  file(COPY_FILE "${BROCCOLI_ROOT}/dep/dawn/scripts/standalone.gclient" "${BROCCOLI_ROOT}/dep/dawn/.gclient")
+endif()
+if (WIN32)
+  set(ENV{PATH} "$ENV{PATH};${BROCCOLI_ROOT}/dep/depot_tools")
+else()
+  set(ENV{PATH} "$ENV{PATH}:${BROCCOLI_ROOT}/dep/depot_tools")
+endif()
+execute_process(
+  COMMAND gclient sync
+  WORKING_DIRECTORY "${BROCCOLI_ROOT}/dep/dawn"
+)
+
 # A more minimalistic choice of backends than Dawn's default: either use Vulkan or Metal.
 if (APPLE)
   set(USE_VULKAN OFF)

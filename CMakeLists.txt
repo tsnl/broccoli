@@ -8,11 +8,13 @@ include("cmake/Strict.cmake")
 # Dependencies:
 #
 
+set(BROCCOLI_ROOT "${CMAKE_CURRENT_LIST_DIR}")
 set(FETCHCONTENT_QUIET OFF)
 include("cmake/FetchDawn.cmake")
 include("cmake/FetchGlm.cmake")
 include("cmake/FetchFmt.cmake")
 include("cmake/FetchRobinHoodHashing.cmake")
+include("cmake/FetchCxxopts.cmake")
 
 #
 # Copying assets to the output folder:
@@ -38,6 +40,7 @@ add_strict_library(
   broccoli-sample STATIC
   "src/broccoli/sample/sample1.cc"
   "src/broccoli/sample/sample2.cc"
+  "src/broccoli/sample/sample3.cc"
 )
 target_link_libraries(broccoli-sample PUBLIC broccoli-engine)
 
@@ -46,3 +49,4 @@ add_strict_executable(
   "src/broccoli/main.cc"
 )
 target_link_libraries(broccoli PRIVATE broccoli-sample)
+target_link_libraries(broccoli PRIVATE cxxopts)

@@ -2,5 +2,7 @@
 
 ## Setting Up
 
-- Setup Dawn: run `script/setup_dawn.sh` or `script/setup_dawn.ps1`.
+- Install...
+  - A C/C++ toolchain: recommended Clang 16 or MSVC.
+  - Python 3 for configuration only.
 - Build with CMake.
