@@ -29,7 +29,10 @@ namespace broccoli {
   class RenderManager;
   class RenderFrame;
   class Renderer;
+}
+namespace broccoli {
   class MeshBuilder;
+  class MeshFactory;
 }
 
 //
@@ -69,6 +72,9 @@ namespace broccoli {
     void initRenderPipeline();
     void initBindGroup0();
     void initDepthStencilTexture(glm::ivec2 framebuffer_size);
+  public:
+    MeshBuilder createMeshBuilder();
+    MeshFactory createMeshFactory();
   public:
     wgpu::Device const &wgpuDevice() const;
     wgpu::RenderPipeline const &wgpuRenderPipeline() const;
@@ -160,16 +166,16 @@ namespace broccoli {
 }
 namespace broccoli {
   class MeshBuilder {
-    friend Engine;
+    friend RenderManager;
   public:
     struct Vtx { glm::dvec3 offset; glm::dvec3 color; float shininess; };
   private:
-    wgpu::Device &m_wgpu_device;
+    RenderManager &m_manager;
     robin_hood::unordered_map<Vertex, uint32_t> m_vtx_compression_map;
     std::vector<Vertex> m_vtx_buf;
     std::vector<uint32_t> m_idx_buf;
   private:
-    MeshBuilder(wgpu::Device &device);
+    MeshBuilder(RenderManager &device);
   public:
     MeshBuilder() = delete;
     MeshBuilder(MeshBuilder const &other) = delete;
@@ -177,7 +183,8 @@ namespace broccoli {
   public:
     void triangle(Vtx v1, Vtx v2, Vtx v3, bool double_faced = false);
     void quad(Vtx v1, Vtx v2, Vtx v3, Vtx v4, bool double_faced = false);
-    Mesh finish();
+  public:
+    static Mesh finish(MeshBuilder &&mb);
   private:
     void singleFaceTriangle(Vtx v1, Vtx v2, Vtx v3);
   private:
@@ -186,6 +193,31 @@ namespace broccoli {
     static glm::tvec4<int16_t> pack_offset(glm::dvec3 offset);
     static glm::tvec4<uint8_t> pack_color(glm::dvec3 color, float shininess);
     static uint32_t pack_normal_unorm_10x3_1x2(glm::dvec3 normal);
+  };
+}
+
+//
+// MeshFactory: one-shot function calls to construct common geometry.
+//
+
+namespace broccoli {
+  class MeshFactory {
+    friend RenderManager;
+  public:
+    struct Facet { glm::dvec3 color; float shininess; };
+  private:
+    RenderManager &m_manager;
+  private:
+    MeshFactory() = delete;
+    MeshFactory(MeshFactory const &other) = delete;
+    MeshFactory(MeshFactory &&other) = default;
+  private:
+    MeshFactory(RenderManager &manager);
+  public:
+    Mesh createCuboid(glm::dvec3 dimensions, Facet px, Facet nx, Facet py, Facet ny, Facet pz, Facet nz);
+    Mesh createCuboid(glm::dvec3 dimensions, Facet common_facet);
+    Mesh createCube(double side_length, Facet px, Facet nx, Facet py, Facet ny, Facet pz, Facet nz);
+    Mesh createCube(double side_length, Facet common_facet);
   };
 }
 

@@ -76,6 +76,7 @@ namespace broccoli {
     void popActivity();
   public:
     MeshBuilder createMeshBuilder();
+    MeshFactory createMeshFactory();
   public:
     double currUpdateTimestampSec() const;
     double currUpdateDtSec() const;

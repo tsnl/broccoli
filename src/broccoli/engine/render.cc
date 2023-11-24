@@ -332,6 +332,14 @@ namespace broccoli {
   }
 }
 namespace broccoli {
+  MeshBuilder RenderManager::createMeshBuilder() {
+    return {*this};
+  }
+  MeshFactory RenderManager::createMeshFactory() {
+    return {*this};
+  }
+}
+namespace broccoli {
   wgpu::Device const &RenderManager::wgpuDevice() const {
     return m_wgpu_device;
   }
@@ -530,12 +538,97 @@ namespace broccoli {
 }
 
 //
+// Interface: MeshFactory
+//
+
+namespace broccoli {
+  MeshFactory::MeshFactory(RenderManager &manager)
+  : m_manager(manager)
+  {}
+}
+namespace broccoli {
+  Mesh MeshFactory::createCuboid(glm::dvec3 dimensions, Facet nx, Facet px, Facet ny, Facet py, Facet nz, Facet pz) {
+    MeshBuilder mb = m_manager.createMeshBuilder();
+    
+    auto hd = dimensions * 0.5;
+
+    // -X face, +X face:
+    mb.quad(
+      {.offset=glm::dvec3{-hd.x, -hd.y, -hd.z}, .color=nx.color, .shininess=nx.shininess},
+      {.offset=glm::dvec3{-hd.x, -hd.y, +hd.z}, .color=nx.color, .shininess=nx.shininess},
+      {.offset=glm::dvec3{-hd.x, +hd.y, +hd.z}, .color=nx.color, .shininess=nx.shininess},
+      {.offset=glm::dvec3{-hd.x, +hd.y, -hd.z}, .color=nx.color, .shininess=nx.shininess}
+    );
+    mb.quad(
+      {.offset=glm::dvec3{+hd.x, -hd.y, +hd.z}, .color=px.color, .shininess=px.shininess},
+      {.offset=glm::dvec3{+hd.x, -hd.y, -hd.z}, .color=px.color, .shininess=px.shininess},
+      {.offset=glm::dvec3{+hd.x, +hd.y, -hd.z}, .color=px.color, .shininess=px.shininess},
+      {.offset=glm::dvec3{+hd.x, +hd.y, +hd.z}, .color=px.color, .shininess=px.shininess}
+    );
+
+    // -Y face, +Y face:
+    mb.quad(
+      {.offset=glm::dvec3{+hd.x, -hd.y, +hd.z}, .color=ny.color, .shininess=ny.shininess},
+      {.offset=glm::dvec3{-hd.x, -hd.y, +hd.z}, .color=ny.color, .shininess=ny.shininess},
+      {.offset=glm::dvec3{-hd.x, -hd.y, -hd.z}, .color=ny.color, .shininess=ny.shininess},
+      {.offset=glm::dvec3{+hd.x, -hd.y, -hd.z}, .color=ny.color, .shininess=ny.shininess}
+    );
+    mb.quad(
+      {.offset=glm::dvec3{-hd.x, +hd.y, -hd.z}, .color=py.color, .shininess=py.shininess},
+      {.offset=glm::dvec3{-hd.x, +hd.y, +hd.z}, .color=py.color, .shininess=py.shininess},
+      {.offset=glm::dvec3{+hd.x, +hd.y, +hd.z}, .color=py.color, .shininess=py.shininess},
+      {.offset=glm::dvec3{+hd.x, +hd.y, -hd.z}, .color=py.color, .shininess=py.shininess}
+    );
+
+    // -Z face, +Z face:
+    mb.quad(
+      {.offset=glm::dvec3{-hd.x, -hd.y, -hd.z}, .color=nz.color, .shininess=nz.shininess},
+      {.offset=glm::dvec3{-hd.x, +hd.y, -hd.z}, .color=nz.color, .shininess=nz.shininess},
+      {.offset=glm::dvec3{+hd.x, +hd.y, -hd.z}, .color=nz.color, .shininess=nz.shininess},
+      {.offset=glm::dvec3{+hd.x, -hd.y, -hd.z}, .color=nz.color, .shininess=nz.shininess}
+    );
+    mb.quad(
+      {.offset=glm::dvec3{+hd.x, -hd.y, +hd.z}, .color=pz.color, .shininess=pz.shininess},
+      {.offset=glm::dvec3{+hd.x, +hd.y, +hd.z}, .color=pz.color, .shininess=pz.shininess},
+      {.offset=glm::dvec3{-hd.x, +hd.y, +hd.z}, .color=pz.color, .shininess=pz.shininess},
+      {.offset=glm::dvec3{-hd.x, -hd.y, +hd.z}, .color=pz.color, .shininess=pz.shininess}
+    );
+
+    return MeshBuilder::finish(std::move(mb));
+  }
+  Mesh MeshFactory::createCuboid(glm::dvec3 dimensions, Facet common_facet) {
+    return createCuboid(
+      dimensions,
+      common_facet, common_facet,
+      common_facet, common_facet,
+      common_facet, common_facet
+    );
+  }
+  Mesh MeshFactory::createCube(double side_length, Facet nx, Facet px, Facet ny, Facet py, Facet nz, Facet pz) {
+  return createCuboid(
+      glm::dvec3{side_length},
+      nx, px,
+      ny, py,
+      nz, pz
+    );
+  }
+  Mesh MeshFactory::createCube(double side_length, Facet common_facet) {
+    return createCube(
+      side_length,
+      common_facet, common_facet,
+      common_facet, common_facet,
+      common_facet, common_facet
+    );
+  }
+}
+
+//
 // Interface: MeshBuilder
 //
 
 namespace broccoli {
-  MeshBuilder::MeshBuilder(wgpu::Device &device)
-  : m_wgpu_device(device),
+  MeshBuilder::MeshBuilder(RenderManager &manager)
+  : m_manager(manager),
     m_vtx_compression_map(),
     m_vtx_buf(),
     m_idx_buf()
@@ -572,30 +665,30 @@ namespace broccoli {
     m_idx_buf.push_back(iv2);
     m_idx_buf.push_back(iv3);
   }
-  Mesh MeshBuilder::finish() {
+  Mesh MeshBuilder::finish(MeshBuilder &&mb) {
     wgpu::BufferDescriptor vtx_buf_descriptor = {
       .nextInChain = nullptr,
       .label = "Broccoli.Mesh.VertexBuffer",
       .usage = wgpu::BufferUsage::Vertex | wgpu::BufferUsage::CopyDst,
-      .size = m_vtx_buf.size() * sizeof(Vertex),
+      .size = mb.m_vtx_buf.size() * sizeof(Vertex),
     };
     wgpu::BufferDescriptor idx_buf_descriptor = {
       .nextInChain = nullptr,
       .label = "Broccoli.Mesh.IndexBuffer",
       .usage = wgpu::BufferUsage::Index | wgpu::BufferUsage::CopyDst,
-      .size = m_idx_buf.size() * sizeof(uint32_t),
+      .size = mb.m_idx_buf.size() * sizeof(uint32_t),
     };
     Mesh mesh = {
-      .vtx_buffer = m_wgpu_device.CreateBuffer(&vtx_buf_descriptor),
-      .idx_buffer = m_wgpu_device.CreateBuffer(&idx_buf_descriptor),
-      .vtx_count = static_cast<uint32_t>(m_vtx_buf.size()),
-      .idx_count = static_cast<uint32_t>(m_idx_buf.size()),
+      .vtx_buffer = mb.m_manager.wgpuDevice().CreateBuffer(&vtx_buf_descriptor),
+      .idx_buffer = mb.m_manager.wgpuDevice().CreateBuffer(&idx_buf_descriptor),
+      .vtx_count = static_cast<uint32_t>(mb.m_vtx_buf.size()),
+      .idx_count = static_cast<uint32_t>(mb.m_idx_buf.size()),
     };
-    wgpu::Queue queue = m_wgpu_device.GetQueue();
-    auto vtx_buf_size = m_vtx_buf.size() * sizeof(Vertex);
-    auto idx_buf_size = m_idx_buf.size() * sizeof(uint32_t);
-    queue.WriteBuffer(mesh.vtx_buffer, 0, m_vtx_buf.data(), vtx_buf_size);
-    queue.WriteBuffer(mesh.idx_buffer, 0, m_idx_buf.data(), idx_buf_size);
+    wgpu::Queue queue = mb.m_manager.wgpuDevice().GetQueue();
+    auto vtx_buf_size = mb.m_vtx_buf.size() * sizeof(Vertex);
+    auto idx_buf_size = mb.m_idx_buf.size() * sizeof(uint32_t);
+    queue.WriteBuffer(mesh.vtx_buffer, 0, mb.m_vtx_buf.data(), vtx_buf_size);
+    queue.WriteBuffer(mesh.idx_buffer, 0, mb.m_idx_buf.data(), idx_buf_size);
     return mesh;
   }
   uint32_t MeshBuilder::vertex(glm::dvec3 offset, glm::dvec3 color, float shininess, uint32_t packed_normal) {

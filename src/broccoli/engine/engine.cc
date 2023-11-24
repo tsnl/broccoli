@@ -142,7 +142,10 @@ namespace broccoli {
 }
 namespace broccoli {
   MeshBuilder Engine::createMeshBuilder() {
-    return {m_wgpu_device};
+    return m_renderer->createMeshBuilder();
+  }
+  MeshFactory Engine::createMeshFactory() {
+    return m_renderer->createMeshFactory();
   }
 }
 namespace broccoli {
