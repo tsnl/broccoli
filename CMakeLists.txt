@@ -17,12 +17,6 @@ include("cmake/FetchRobinHoodHashing.cmake")
 include("cmake/FetchCxxopts.cmake")
 
 #
-# Copying assets to the output folder:
-#
-
-configure_file("res/render3d.wgsl" "${CMAKE_BINARY_DIR}/res/render3d.wgsl" COPYONLY)
-
-#
 # Build targets:
 #
 
@@ -39,8 +33,6 @@ target_link_libraries(broccoli-engine PUBLIC dawn_proc dawn_glfw dawn_native daw
 add_strict_library(
   broccoli-sample STATIC
   "src/broccoli/sample/sample1.cc"
-  "src/broccoli/sample/sample2.cc"
-  "src/broccoli/sample/sample3.cc"
 )
 target_link_libraries(broccoli-sample PUBLIC broccoli-engine)
 
@@ -50,3 +42,15 @@ add_strict_executable(
 )
 target_link_libraries(broccoli PRIVATE broccoli-sample)
 target_link_libraries(broccoli PRIVATE cxxopts)
+
+#
+# Copying assets to the output folder:
+#
+
+add_custom_command(
+  TARGET broccoli POST_BUILD
+  COMMAND 
+    ${CMAKE_COMMAND} -E copy
+      ${CMAKE_SOURCE_DIR}/res
+      ${CMAKE_CURRENT_BINARY_DIR}/res
+)

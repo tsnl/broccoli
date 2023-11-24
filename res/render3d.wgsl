@@ -41,9 +41,8 @@ struct FragmentInput {
   @builtin(position) clip_position: vec4<f32>,
   @location(0) @interpolate(linear) world_position: vec4<f32>,
   @location(1) @interpolate(linear) color: vec4<f32>,
-  @location(2) @interpolate(linear) cam_normal: vec4<f32>,
-  @location(3) @interpolate(linear) world_normal: vec4<f32>,
-  @location(4) @interpolate(flat) instance_index: u32,
+  @location(2) @interpolate(linear) world_normal: vec4<f32>,
+  @location(3) @interpolate(flat) instance_index: u32,
 };
 
 @group(0) @binding(0) var<uniform> u_camera: CameraUniform;
@@ -59,17 +58,19 @@ fn vs_main(vertex_input: VertexInput) -> FragmentInput {
 
   let model_matrix = u_model_mats[vertex_input.instance_index];
 
+  // NOTE: to evaluate 'world_normal', we must recall that 'model_matrix' may translate as well as perform a linear
+  // transform. We can get the linear transformation to the normal by subtracting out the image of (0, 0, 0, 1): by
+  // figuring out where the model matrix transforms (0, 0, 0), we can eliminate all 'translation' effects. This is
+  // equivalent to finding the image of (0, 0, 0, 1), i.e. the 'w' basis vector: hence, model_matrix[3].
   let world_position = model_matrix * vec4(position, 1.0);
-  let world_normal = normalize((model_matrix * vec4<f32>(normal, 1.0)).xyz);
+  let world_normal = normalize((model_matrix * vec4(normal, 1.0) - model_matrix[3]).xyz);
 
   let cam_position = u_camera.view_matrix * world_position;
-  let cam_normal = normalize((u_camera.view_matrix * vec4(world_normal, 1.0)).xyz);
 
   var fragment_input: FragmentInput;
   fragment_input.clip_position = perspective_projection(cam_position);
   fragment_input.world_position = world_position;
   fragment_input.color = vec4(color, shininess);
-  fragment_input.cam_normal = vec4(cam_normal, 1.0f);
   fragment_input.world_normal = vec4(world_normal, 1.0f);
   fragment_input.instance_index = vertex_input.instance_index;
   return fragment_input;
@@ -78,7 +79,7 @@ fn vs_main(vertex_input: VertexInput) -> FragmentInput {
 @fragment
 fn fs_main(fragment_input: FragmentInput) -> @location(0) vec4f {
   var result = blinn_phong_ambient(fragment_input, u_light.ambient_glow).xyz;
-  for (var i = 0u; i < 1; i += 1) {
+  for (var i = 0u; i < u_light.directional_light_count; i += 1) {
     let light_dir = u_light.directional_light_dir_array[i].xyz;
     let light_color = u_light.directional_light_color_array[i].xyz;
     result = clamp(result + blinn_phong_dir(fragment_input, light_dir, light_color), vec3(0.0), vec3(1.0));
@@ -120,13 +121,13 @@ fn perspective_projection(in: vec4<f32>) -> vec4<f32> {
 fn blinn_phong_dir(in: FragmentInput, light_dir: vec3<f32>, light_color: vec3<f32>) -> vec3<f32> {
   return
     blinn_phong_specular_dir(in, light_dir, light_color) +
-    blinn_phong_diffuse_dir(in, light_dir) +
+    blinn_phong_diffuse_dir(in, light_dir, light_color) +
     vec3<f32>(0.0);
 }
 fn blinn_phong_pt(in: FragmentInput, light_pos: vec3<f32>, light_color: vec3<f32>) -> vec3<f32> {
   return
     blinn_phong_specular_pt(in, light_pos, light_color) +
-    blinn_phong_diffuse_pt(in, light_pos) +
+    blinn_phong_diffuse_pt(in, light_pos, light_color) +
     vec3<f32>(0.0);
 }
 fn blinn_phong_specular_dir(in: FragmentInput, light_dir: vec3<f32>, light_color: vec3<f32>) -> vec3<f32> {
@@ -135,8 +136,8 @@ fn blinn_phong_specular_dir(in: FragmentInput, light_dir: vec3<f32>, light_color
   let view_pos = u_camera.world_position.xyz;
   let frag_pos = in.world_position.xyz;
   let view_dir: vec3<f32> = normalize(view_pos - frag_pos);
-  let halfway_dir: vec3<f32> = normalize(light_dir + view_dir);
-  let k_energy_conservation = (2.0 + shininess) / (2.0 * PI);
+  let halfway_dir: vec3<f32> = normalize(-light_dir + view_dir);
+  let k_energy_conservation = (8.0 + shininess) / (8.0 * PI);
   let spec: f32 = k_energy_conservation * pow(max(dot(normal, halfway_dir), 0.0), shininess);
   return light_color * spec;
 }
@@ -148,21 +149,20 @@ fn blinn_phong_specular_pt(in: FragmentInput, light_pos: vec3<f32>, light_color:
   let light_dir: vec3<f32> = normalize(light_pos - frag_pos);
   let view_dir: vec3<f32> = normalize(view_pos - frag_pos);
   let halfway_dir: vec3<f32> = normalize(light_dir + view_dir);
-  let k_energy_conservation = (2.0 + shininess) / (2.0 * PI);
+  let k_energy_conservation = (8.0 + shininess) / (8.0 * PI);
   let spec: f32 = k_energy_conservation * pow(max(dot(normal, halfway_dir), 0.0), shininess);
   return light_color * spec;
 }
-fn blinn_phong_diffuse_dir(in: FragmentInput, light_dir: vec3<f32>) -> vec3<f32> {
+fn blinn_phong_diffuse_dir(in: FragmentInput, light_dir: vec3<f32>, light_color: vec3<f32>) -> vec3<f32> {
   let base_color = in.color.xyz;
   let normal = in.world_normal.xyz;
   let strength = clamp(dot(normal, -light_dir), 0.0f, 1.0f);
   return strength * base_color;
 }
-fn blinn_phong_diffuse_pt(in: FragmentInput, light_pos: vec3<f32>) -> vec3<f32> {
+fn blinn_phong_diffuse_pt(in: FragmentInput, light_pos: vec3<f32>, light_color: vec3<f32>) -> vec3<f32> {
   let frag_pos = in.world_position.xyz;
   let light_dir: vec3<f32> = normalize(light_pos - frag_pos);
-  let normal = in.world_normal;
-  return blinn_phong_diffuse_dir(in, light_pos);
+  return blinn_phong_diffuse_dir(in, light_color, light_pos);
 }
 fn blinn_phong_ambient(in: FragmentInput, ambient_glow: f32) -> vec3<f32> {
   return ambient_glow * in.color.xyz;

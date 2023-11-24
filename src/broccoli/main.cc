@@ -15,7 +15,7 @@ int main(int argc, const char *argv[]) {
 
   int sample_id = 0;
   int min_sample_id = 1;
-  int max_sample_id = 3;
+  int max_sample_id = 1;
   if (result.count("sample")) {
     sample_id = result["sample"].as<int>();
     CHECK(
@@ -49,16 +49,6 @@ static void runSample(int sample_id) {
     case 1:
       engine.pushActivity([] (broccoli::Engine &engine) -> std::unique_ptr<broccoli::Activity> {
         return std::make_unique<broccoli::SampleActivity1>(engine);
-      });
-      break;
-    case 2:
-      engine.pushActivity([] (broccoli::Engine &engine) -> std::unique_ptr<broccoli::Activity> {
-        return std::make_unique<broccoli::SampleActivity2>(engine);
-      });
-      break;
-    case 3:
-      engine.pushActivity([] (broccoli::Engine &engine) -> std::unique_ptr<broccoli::Activity> {
-        return std::make_unique<broccoli::SampleActivity3>(engine);
       });
       break;
     default:

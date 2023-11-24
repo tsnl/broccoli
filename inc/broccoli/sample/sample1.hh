@@ -9,7 +9,7 @@ namespace broccoli {
   public:
     SampleActivity1(broccoli::Engine &engine);
   private:
-    static Mesh buildTriangleMesh(broccoli::Engine &engine);
+    static Mesh buildCubeMesh(broccoli::Engine &engine);
   public:
     void draw(broccoli::RenderFrame &frame) override;
   };
