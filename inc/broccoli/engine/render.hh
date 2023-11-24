@@ -120,7 +120,8 @@ namespace broccoli {
     ~Renderer();
   public:
     void draw(Mesh mesh);
-    void draw(Mesh mesh, std::span<glm::mat4x4> const &instance_transforms);
+    void draw(Mesh mesh, glm::mat4x4 instance_transform);
+    void draw(Mesh mesh, std::span<glm::mat4x4> instance_transforms);
     void draw(Mesh mesh, std::vector<glm::mat4x4> instance_transforms);
     void addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color);
     void addPointLight(glm::vec3 position, float intensity, glm::vec3 color);
@@ -216,8 +217,6 @@ namespace broccoli {
   public:
     Mesh createCuboid(glm::dvec3 dimensions, Facet px, Facet nx, Facet py, Facet ny, Facet pz, Facet nz);
     Mesh createCuboid(glm::dvec3 dimensions, Facet common_facet);
-    Mesh createCube(double side_length, Facet px, Facet nx, Facet py, Facet ny, Facet pz, Facet nz);
-    Mesh createCube(double side_length, Facet common_facet);
   };
 }
 

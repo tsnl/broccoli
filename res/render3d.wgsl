@@ -51,7 +51,7 @@ struct FragmentInput {
 
 @vertex
 fn vs_main(vertex_input: VertexInput) -> FragmentInput {
-  let position = vec3<f32>(vertex_input.raw_position.xyz) / 1024.0;
+  let position = vec3<f32>(vertex_input.raw_position.xyz) / 16.0;
   let color = vec3<f32>(vertex_input.raw_color.xyz) / 255.0;
   let shininess = f32(vertex_input.raw_color.w) / 255.0;
   let normal = 2.0 * vertex_input.raw_normal.xyz - 1.0;

@@ -9,8 +9,8 @@ namespace broccoli {
     m_cube_mesh(buildCubeMesh(engine))
   {}
   Mesh SampleActivity1::buildCubeMesh(broccoli::Engine &engine) {
-    return engine.createMeshFactory().createCube(
-      1.0,
+    return engine.createMeshFactory().createCuboid(
+      glm::dvec3{1.0},
       MeshFactory::Facet{.color=glm::dvec3{0.0, 1.0, 1.0}, .shininess=16.0},
       MeshFactory::Facet{.color=glm::dvec3{1.0, 0.0, 0.0}, .shininess=16.0},
       MeshFactory::Facet{.color=glm::dvec3{1.0, 0.0, 1.0}, .shininess=16.0},
@@ -20,7 +20,7 @@ namespace broccoli {
     );
   }
   void SampleActivity1::draw(broccoli::RenderFrame &frame) {
-    frame.clear(glm::dvec3{0.00, 0.00, 0.00});
+    frame.clear(glm::dvec3{0.00});
     auto renderer = frame.use_camera({.transform=glm::mat4x4{1.0}, .fovy_deg=45.0});
     auto animation_progress = std::fmod(engine().currUpdateTimestampSec(), 5.0) / 5.0;
     auto angular_position = static_cast<float>(animation_progress * 2 * M_PI);

@@ -15,7 +15,7 @@ int main(int argc, const char *argv[]) {
 
   int sample_id = 0;
   int min_sample_id = 1;
-  int max_sample_id = 1;
+  int max_sample_id = 2;
   if (result.count("sample")) {
     sample_id = result["sample"].as<int>();
     CHECK(
@@ -44,11 +44,16 @@ static cxxopts::ParseResult parseCliArgs(int argc, const char *argv[]) {
 }
 
 static void runSample(int sample_id) {
-  broccoli::Engine engine{"broccoli", 800, 450};
+  broccoli::Engine engine{"broccoli", 1920, 1080};
   switch (sample_id) {
     case 1:
       engine.pushActivity([] (broccoli::Engine &engine) -> std::unique_ptr<broccoli::Activity> {
         return std::make_unique<broccoli::SampleActivity1>(engine);
+      });
+      break;
+    case 2:
+      engine.pushActivity([] (broccoli::Engine &engine) -> std::unique_ptr<broccoli::Activity> {
+        return std::make_unique<broccoli::SampleActivity2>(engine);
       });
       break;
     default:

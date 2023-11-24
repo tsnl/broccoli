@@ -436,10 +436,12 @@ namespace broccoli {
 }
 namespace broccoli {
   void Renderer::draw(Mesh mesh) {
-    glm::mat4x4 identity{1.0f};
-    draw(mesh, std::span{&identity, 1});
+    draw(mesh, glm::mat4x4{1.0f});
   }
-  void Renderer::draw(Mesh mesh, std::span<glm::mat4x4> const &transforms_span) {
+  void Renderer::draw(Mesh mesh, glm::mat4x4 transform) {
+    draw(mesh, std::span<glm::mat4x4>{&transform, 1});
+  }
+  void Renderer::draw(Mesh mesh, std::span<glm::mat4x4> transforms_span) {
     std::vector<glm::mat4x4> transforms(transforms_span.begin(), transforms_span.end());
     draw(mesh, std::move(transforms));
   }
@@ -508,7 +510,7 @@ namespace broccoli {
     wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
     wgpu::RenderPassColorAttachment rp_color_attachment = {
       .view = m_target.texture_view,
-      .loadOp = wgpu::LoadOp::Clear,
+      .loadOp = wgpu::LoadOp::Load,
       .storeOp = wgpu::StoreOp::Store,
     };
     wgpu::RenderPassDepthStencilAttachment rp_depth_attachment = {
@@ -599,22 +601,6 @@ namespace broccoli {
   Mesh MeshFactory::createCuboid(glm::dvec3 dimensions, Facet common_facet) {
     return createCuboid(
       dimensions,
-      common_facet, common_facet,
-      common_facet, common_facet,
-      common_facet, common_facet
-    );
-  }
-  Mesh MeshFactory::createCube(double side_length, Facet nx, Facet px, Facet ny, Facet py, Facet nz, Facet pz) {
-  return createCuboid(
-      glm::dvec3{side_length},
-      nx, px,
-      ny, py,
-      nz, pz
-    );
-  }
-  Mesh MeshFactory::createCube(double side_length, Facet common_facet) {
-    return createCube(
-      side_length,
       common_facet, common_facet,
       common_facet, common_facet,
       common_facet, common_facet
@@ -713,13 +699,13 @@ namespace broccoli {
     return new_vtx_idx;
   }
   glm::tvec4<int16_t> MeshBuilder::pack_offset(glm::dvec3 pos) {
-    // Packing into 6.10 signed fix-point per-component
-    auto pos_fixpt = glm::round(glm::clamp(pos, -32768.0, +32767.0) * 1024.0);
+    // Packing into 12.4 signed fix-point per-component
+    auto pos_fixpt = glm::round(glm::clamp(pos * 16.0, -32768.0, +32767.0));
     return {
       static_cast<int16_t>(pos_fixpt.x),
       static_cast<int16_t>(pos_fixpt.y),
       static_cast<int16_t>(pos_fixpt.z),
-      1024,
+      16.0,
     };
   }
   glm::tvec4<uint8_t> MeshBuilder::pack_color(glm::dvec3 color, float shininess) {
