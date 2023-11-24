@@ -25,6 +25,9 @@ namespace broccoli {
   static const uint64_t R3D_VERTEX_BUFFER_CAPACITY = 1 << 16;
   static const uint64_t R3D_INDEX_BUFFER_CAPACITY = 1 << 20;
   static const uint64_t R3D_INSTANCE_CAPACITY = 1 << 10;
+  static const uint64_t R3D_DIRECTIONAL_LIGHT_CAPACITY = 4;
+  static const uint64_t R3D_POINT_LIGHT_CAPACITY = 16;
+  static const float R3D_DEFAULT_AMBIENT_GLOW = 0.05f;
 }
 namespace broccoli {
   static const wgpu::TextureFormat R3D_DEPTH_TEXTURE_FORMAT = wgpu::TextureFormat::Depth24Plus;
@@ -35,8 +38,19 @@ namespace broccoli {
 //
 
 namespace broccoli {
+  struct LightUniform {
+    std::array<glm::vec4, R3D_DIRECTIONAL_LIGHT_CAPACITY> directional_light_dir_array;
+    std::array<glm::vec4, R3D_DIRECTIONAL_LIGHT_CAPACITY> directional_light_color_array;
+    std::array<glm::vec4, R3D_POINT_LIGHT_CAPACITY> point_light_pos_array;
+    std::array<glm::vec4, R3D_POINT_LIGHT_CAPACITY> point_light_color_array;
+    uint32_t directional_light_count;
+    uint32_t point_light_count;
+    float ambient_glow;
+    std::array<uint32_t, 93> rsv;
+  };
   struct CameraUniform {
     glm::mat4x4 view_matrix;
+    glm::vec4 world_position;
     float camera_cot_half_fovy;
     float camera_aspect_inv;
     float camera_zmin;
@@ -49,11 +63,9 @@ namespace broccoli {
     uint32_t rsv04 = 0;
     uint32_t rsv05 = 0;
     uint32_t rsv06 = 0;
-    uint32_t rsv07 = 0;
-    uint32_t rsv08 = 0;
-    uint32_t rsv09 = 0;
-    uint32_t rsv10 = 0;
   };
+  static_assert(sizeof(LightUniform) == 1024, "invalid LightUniform size");
+  static_assert(sizeof(CameraUniform) == 128, "invalid CameraUniform size");
 }
 
 //
@@ -64,6 +76,7 @@ namespace broccoli {
   RenderManager::RenderManager(wgpu::Device &device, glm::ivec2 framebuffer_size)
   : m_wgpu_device(device),
     m_wgpu_shader_module(nullptr),
+    m_wgpu_light_uniform_buffer(nullptr),
     m_wgpu_camera_uniform_buffer(nullptr),
     m_wgpu_transform_uniform_buffer(nullptr),
     m_wgpu_bind_group_0_layout(nullptr),
@@ -120,16 +133,21 @@ namespace broccoli {
     m_wgpu_shader_module = shader_module;
   }
   void RenderManager::initUniforms() {
-    wgpu::BufferDescriptor global_uniform_buffer_descriptor = {
-      .nextInChain = nullptr,
-      .label = "Broccoli.Renderer.Draw.GlobalUniformBuffer",
+    wgpu::BufferDescriptor light_uniform_buffer_descriptor = {
+      .label = "Broccoli.Renderer.Draw.LightUniformBuffer",
+      .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
+      .size = sizeof(LightUniform),
+    };
+    m_wgpu_light_uniform_buffer = m_wgpu_device.CreateBuffer(&light_uniform_buffer_descriptor);
+
+    wgpu::BufferDescriptor camera_uniform_buffer_descriptor = {
+      .label = "Broccoli.Renderer.Draw.CameraUniformBuffer",
       .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
       .size = sizeof(CameraUniform),
     };
-    m_wgpu_camera_uniform_buffer = m_wgpu_device.CreateBuffer(&global_uniform_buffer_descriptor);
+    m_wgpu_camera_uniform_buffer = m_wgpu_device.CreateBuffer(&camera_uniform_buffer_descriptor);
     
     wgpu::BufferDescriptor draw_transform_uniform_buffer_descriptor = {
-      .nextInChain = nullptr,
       .label = "Broccoli.Renderer.Draw.TransformUniformBuffer",
       .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
       .size = R3D_INSTANCE_CAPACITY * sizeof(glm::mat4x4),
@@ -138,48 +156,58 @@ namespace broccoli {
   }
   void RenderManager::initDepthStencilTexture(glm::ivec2 framebuffer_size) {
     wgpu::TextureDescriptor depth_texture_descriptor = {
+      .label = "Broccoli.Renderer.Draw.RenderTarget.DepthStencilTexture",
+      .usage = wgpu::TextureUsage::RenderAttachment,
       .dimension = wgpu::TextureDimension::e2D,
-      .format = R3D_DEPTH_TEXTURE_FORMAT,
-      .mipLevelCount = 1,
-      .sampleCount = 1,
       .size = wgpu::Extent3D {
         .width = static_cast<uint32_t>(framebuffer_size.x),
         .height = static_cast<uint32_t>(framebuffer_size.y),
       },
-      .usage = wgpu::TextureUsage::RenderAttachment,
+      .format = R3D_DEPTH_TEXTURE_FORMAT,
+      .mipLevelCount = 1,
+      .sampleCount = 1,
       .viewFormatCount = 1,
       .viewFormats = &R3D_DEPTH_TEXTURE_FORMAT,
     };
     m_wgpu_depth_stencil_texture = m_wgpu_device.CreateTexture(&depth_texture_descriptor);
     
     wgpu::TextureViewDescriptor depth_view_descriptor = {
-      .aspect = wgpu::TextureAspect::DepthOnly,
-      .baseArrayLayer = 0,
-      .arrayLayerCount = 1,
+      .label = "Broccoli.Renderer.Draw.RenderTarget.DepthStencilTextureView",
+      .format = R3D_DEPTH_TEXTURE_FORMAT,
+      .dimension = wgpu::TextureViewDimension::e2D,
       .baseMipLevel = 0,
       .mipLevelCount = 1,
-      .dimension = wgpu::TextureViewDimension::e2D,
-      .format = R3D_DEPTH_TEXTURE_FORMAT,
+      .baseArrayLayer = 0,
+      .arrayLayerCount = 1,
+      .aspect = wgpu::TextureAspect::DepthOnly,
     };
     m_wgpu_depth_stencil_texture_view = m_wgpu_depth_stencil_texture.CreateView(&depth_view_descriptor);
   }
   void RenderManager::initBindGroup0Layout() {
-    std::array<wgpu::BindGroupLayoutEntry, 2> bind_group_layout_entries = {
+    std::array<wgpu::BindGroupLayoutEntry, 3> bind_group_layout_entries = {
       wgpu::BindGroupLayoutEntry {
         .binding = 0,
-        .visibility = wgpu::ShaderStage::Vertex,
+        .visibility = wgpu::ShaderStage::Vertex | wgpu::ShaderStage::Fragment,
         .buffer = wgpu::BufferBindingLayout {
           .type = wgpu::BufferBindingType::Uniform,
           .minBindingSize = sizeof(CameraUniform),
-        }
+        },
       },
       wgpu::BindGroupLayoutEntry {
         .binding = 1,
+        .visibility = wgpu::ShaderStage::Fragment,
+        .buffer = wgpu::BufferBindingLayout {
+          .type = wgpu::BufferBindingType::Uniform,
+          .minBindingSize = sizeof(LightUniform),
+        },
+      },
+      wgpu::BindGroupLayoutEntry {
+        .binding = 2,
         .visibility = wgpu::ShaderStage::Vertex,
         .buffer = wgpu::BufferBindingLayout {
           .type = wgpu::BufferBindingType::Uniform,
           .minBindingSize = sizeof(glm::mat4x4) * R3D_INSTANCE_CAPACITY,
-        }
+        },
       },
     };
     wgpu::BindGroupLayoutDescriptor bind_group_layout_descriptor = {
@@ -221,7 +249,7 @@ namespace broccoli {
     std::array<wgpu::VertexAttribute, 3> vertex_buffer_attrib_layout = {
       wgpu::VertexAttribute{.format=wgpu::VertexFormat::Sint16x4, .offset=offsetof(Vertex, offset), .shaderLocation=0},
       wgpu::VertexAttribute{.format=wgpu::VertexFormat::Uint8x4, .offset=offsetof(Vertex, color), .shaderLocation=1},
-      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Sint8x4, .offset=offsetof(Vertex, normal), .shaderLocation=2},
+      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Unorm10_10_10_2, .offset=offsetof(Vertex, normal), .shaderLocation=2},
     };
     wgpu::VertexBufferLayout vertex_buffer_layout = {
       .arrayStride = sizeof(Vertex),
@@ -277,7 +305,7 @@ namespace broccoli {
     m_wgpu_render_pipeline = m_wgpu_device.CreateRenderPipeline(&render_pipeline_descriptor);
   }
   void RenderManager::initBindGroup0() {
-    std::array<wgpu::BindGroupEntry, 2> bind_group_entries = {
+    std::array<wgpu::BindGroupEntry, 3> bind_group_entries = {
       wgpu::BindGroupEntry {
         .binding = 0,
         .buffer = m_wgpu_camera_uniform_buffer,
@@ -285,6 +313,11 @@ namespace broccoli {
       },
       wgpu::BindGroupEntry {
         .binding = 1,
+        .buffer = m_wgpu_light_uniform_buffer,
+        .size = sizeof(LightUniform),
+      },
+      wgpu::BindGroupEntry {
+        .binding = 2,
         .buffer = m_wgpu_transform_uniform_buffer,
         .size = sizeof(glm::mat4x4) * R3D_INSTANCE_CAPACITY,
       },
@@ -304,6 +337,9 @@ namespace broccoli {
   }
   wgpu::RenderPipeline const &RenderManager::wgpuRenderPipeline() const {
     return m_wgpu_render_pipeline;
+  }
+  wgpu::Buffer const &RenderManager::wgpuLightUniformBuffer() const {
+    return m_wgpu_light_uniform_buffer;
   }
   wgpu::Buffer const &RenderManager::wgpuCameraUniformBuffer() const {
     return m_wgpu_camera_uniform_buffer;
@@ -375,12 +411,52 @@ namespace broccoli {
 namespace broccoli {
   Renderer::Renderer(RenderManager &renderer, RenderTarget target, RenderCamera camera)
   : m_manager(renderer),
-    m_target(target)
+    m_target(target),
+    m_camera(camera),
+    m_mesh_instance_list_vec(),
+    m_directional_light_vec(),
+    m_point_light_vec()
   {
+    m_directional_light_vec.reserve(R3D_DIRECTIONAL_LIGHT_CAPACITY);
+    m_point_light_vec.reserve(R3D_POINT_LIGHT_CAPACITY);
+  }
+  Renderer::~Renderer() {
+    sendCameraData(m_camera, m_target);
+    sendLightData(std::move(m_directional_light_vec), std::move(m_point_light_vec));
+    sendDrawMeshInstanceListVec(m_mesh_instance_list_vec);
+  }
+}
+namespace broccoli {
+  void Renderer::draw(Mesh mesh) {
+    glm::mat4x4 identity{1.0f};
+    draw(mesh, std::span{&identity, 1});
+  }
+  void Renderer::draw(Mesh mesh, std::span<glm::mat4x4> const &transforms_span) {
+    std::vector<glm::mat4x4> transforms(transforms_span.begin(), transforms_span.end());
+    draw(mesh, std::move(transforms));
+  }
+  void Renderer::draw(Mesh mesh, std::vector<glm::mat4x4> transforms) {
+    m_mesh_instance_list_vec.emplace_back(mesh, std::move(transforms));
+  }
+  void Renderer::addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color) {
+    direction = glm::normalize(direction);
+    color = glm::normalize(color) * intensity;
+    DirectionalLight directional_list{direction, color};
+    m_directional_light_vec.emplace_back(directional_list);
+  }
+  void Renderer::addPointLight(glm::vec3 position, float intensity, glm::vec3 color) {
+    color = glm::normalize(color) * intensity;
+    PointLight point_light{position, color};
+    m_point_light_vec.emplace_back(point_light);
+  }
+}
+namespace broccoli {
+  void Renderer::sendCameraData(RenderCamera camera, RenderTarget target) {
     const float fovy_rad = (camera.fovy_deg / 360.0f) * (2.0f * static_cast<float>(M_PI));
     const float aspect = target.size.x / static_cast<float>(target.size.y);
     const CameraUniform buf = {
       .view_matrix = glm::inverse(camera.transform),
+      .world_position = camera.transform * glm::vec4{glm::vec3{0.0f}, 1.0f},
       .camera_cot_half_fovy = 1.0f / std::tanf(fovy_rad / 2.0f),
       .camera_aspect_inv = 1.0f / aspect,
       .camera_zmin = 000.050f,
@@ -390,16 +466,36 @@ namespace broccoli {
     auto queue = m_manager.wgpuDevice().GetQueue();
     queue.WriteBuffer(m_manager.wgpuCameraUniformBuffer(), 0, &buf, sizeof(CameraUniform));
   }
-}
-namespace broccoli {
-  void Renderer::draw(Mesh mesh) {
-    glm::mat4x4 identity{1.0f};
-    draw(mesh, std::span{&identity, 1});
-  }
-  void Renderer::draw(Mesh mesh, std::span<glm::mat4x4> const &transform) {
+  void Renderer::sendLightData(std::vector<DirectionalLight> directional_light_vec, std::vector<PointLight> point_light_vec) {
+    CHECK(directional_light_vec.size() < R3D_DIRECTIONAL_LIGHT_CAPACITY, "Direction light overflow");
+    CHECK(point_light_vec.size() < R3D_POINT_LIGHT_CAPACITY, "Point light overflow");
+    LightUniform buf = {
+      .directional_light_count = static_cast<uint32_t>(directional_light_vec.size()),
+      .point_light_count = static_cast<uint32_t>(point_light_vec.size()),
+      .ambient_glow = R3D_DEFAULT_AMBIENT_GLOW,
+    };
+    for (size_t i = 0; i < directional_light_vec.size(); i++) {
+      buf.directional_light_color_array[i] = glm::vec4{directional_light_vec[i].color, 0.0f};
+      buf.directional_light_dir_array[i] = glm::vec4{directional_light_vec[i].direction, 0.0f};
+    }
+    for (size_t i = 0; i < point_light_vec.size(); i++) {
+      buf.point_light_color_array[i] = glm::vec4{point_light_vec[i].color, 0.0f};
+      buf.point_light_pos_array[i] = glm::vec4{point_light_vec[i].position, 0.0f};
+    }
     auto queue = m_manager.wgpuDevice().GetQueue();
-    auto uniform_buffer_size = transform.size() * sizeof(glm::mat4x4);
-    queue.WriteBuffer(m_manager.wgpuTransformUniformBuffer(), 0, transform.data(), uniform_buffer_size);
+    queue.WriteBuffer(m_manager.wgpuLightUniformBuffer(), 0, &buf, sizeof(LightUniform));
+  }
+  void Renderer::sendDrawMeshInstanceListVec(std::vector<MeshInstanceList> mesh_instance_list_vec) {
+    for (auto const &mesh_instance_list: m_mesh_instance_list_vec) {
+      sendDrawMeshInstanceList(mesh_instance_list);
+    }
+  }
+  void Renderer::sendDrawMeshInstanceList(MeshInstanceList const &mesh_instance_list) {
+    auto const &mesh = mesh_instance_list.mesh;
+    auto const &transform_list = mesh_instance_list.instance_list;
+    auto queue = m_manager.wgpuDevice().GetQueue();
+    auto uniform_buffer_size = transform_list.size() * sizeof(glm::mat4x4);
+    queue.WriteBuffer(m_manager.wgpuTransformUniformBuffer(), 0, transform_list.data(), uniform_buffer_size);
     wgpu::CommandEncoderDescriptor command_encoder_descriptor = {.label = "Broccoli.Renderer.Draw.CommandEncoder"};
     wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
     wgpu::RenderPassColorAttachment rp_color_attachment = {
@@ -425,7 +521,7 @@ namespace broccoli {
       rp.SetBindGroup(0, m_manager.wgpuBindGroup0());
       rp.SetIndexBuffer(mesh.idx_buffer, wgpu::IndexFormat::Uint32);
       rp.SetVertexBuffer(0, mesh.vtx_buffer);
-      rp.DrawIndexed(mesh.idx_count, static_cast<uint32_t>(transform.size()));
+      rp.DrawIndexed(mesh.idx_count, static_cast<uint32_t>(transform_list.size()));
     }
     rp.End();
     wgpu::CommandBuffer command_buffer = command_encoder.Finish();
@@ -458,6 +554,8 @@ namespace broccoli {
     triangle(v1, v2, v3, double_faced);
     triangle(v1, v3, v4, double_faced);
   }
+}
+namespace broccoli {
   void MeshBuilder::singleFaceTriangle(Vtx v1, Vtx v2, Vtx v3) {
     auto e1 = v2.offset - v1.offset;
     auto e2 = v3.offset - v1.offset;
@@ -467,9 +565,9 @@ namespace broccoli {
       return;
     }
     auto unorm_normal = pack_normal_unorm_10x3_1x2(normal);
-    auto iv1 = vertex(v1.offset, v1.color, unorm_normal);
-    auto iv2 = vertex(v2.offset, v2.color, unorm_normal);
-    auto iv3 = vertex(v3.offset, v3.color, unorm_normal);
+    auto iv1 = vertex(v1.offset, v1.color, v1.shininess, unorm_normal);
+    auto iv2 = vertex(v2.offset, v2.color, v2.shininess, unorm_normal);
+    auto iv3 = vertex(v3.offset, v3.color, v3.shininess, unorm_normal);
     m_idx_buf.push_back(iv1);
     m_idx_buf.push_back(iv2);
     m_idx_buf.push_back(iv3);
@@ -500,9 +598,9 @@ namespace broccoli {
     queue.WriteBuffer(mesh.idx_buffer, 0, m_idx_buf.data(), idx_buf_size);
     return mesh;
   }
-  uint32_t MeshBuilder::vertex(glm::dvec3 offset, glm::dvec4 color, uint32_t packed_normal) {
+  uint32_t MeshBuilder::vertex(glm::dvec3 offset, glm::dvec3 color, float shininess, uint32_t packed_normal) {
     auto packed_offset = pack_offset(offset);
-    auto packed_color = pack_color(color);
+    auto packed_color = pack_color(color, shininess);
     broccoli::Vertex packed_vertex = {.offset=packed_offset, .color=packed_color, .normal=packed_normal};
     auto packed_vertex_it = m_vtx_compression_map.find(packed_vertex);
     if (packed_vertex_it != m_vtx_compression_map.end()) {
@@ -531,13 +629,14 @@ namespace broccoli {
       1024,
     };
   }
-  glm::tvec4<uint8_t> MeshBuilder::pack_color(glm::dvec4 color) {
+  glm::tvec4<uint8_t> MeshBuilder::pack_color(glm::dvec3 color, float shininess) {
     auto pos_fixpt = glm::round(glm::clamp(color, 0.0, 1.0) * 255.0);
+    auto shininess_fixpt = glm::round(glm::clamp(shininess, 0.0f, 1.0f) * 255.0);
     return {
       static_cast<uint8_t>(pos_fixpt.x),
       static_cast<uint8_t>(pos_fixpt.y),
       static_cast<uint8_t>(pos_fixpt.z),
-      static_cast<uint8_t>(pos_fixpt.w),
+      static_cast<uint8_t>(shininess_fixpt),
     };
   }
   uint32_t MeshBuilder::pack_normal_unorm_10x3_1x2(glm::dvec3 normal) {

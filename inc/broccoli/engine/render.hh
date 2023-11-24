@@ -21,6 +21,9 @@ namespace broccoli {
 namespace broccoli {
   struct Vertex;
   struct Mesh;
+  struct MeshInstanceList;
+  struct DirectionalLight;
+  struct PointLight;
 }
 namespace broccoli {
   class RenderManager;
@@ -43,6 +46,7 @@ namespace broccoli {
   private:
     wgpu::Device &m_wgpu_device;
     wgpu::ShaderModule m_wgpu_shader_module;
+    wgpu::Buffer m_wgpu_light_uniform_buffer;
     wgpu::Buffer m_wgpu_camera_uniform_buffer;
     wgpu::Buffer m_wgpu_transform_uniform_buffer;
     wgpu::BindGroupLayout m_wgpu_bind_group_0_layout;
@@ -68,6 +72,7 @@ namespace broccoli {
   public:
     wgpu::Device const &wgpuDevice() const;
     wgpu::RenderPipeline const &wgpuRenderPipeline() const;
+    wgpu::Buffer const &wgpuLightUniformBuffer() const;
     wgpu::Buffer const &wgpuCameraUniformBuffer() const;
     wgpu::Buffer const &wgpuTransformUniformBuffer() const;
     wgpu::BindGroup const &wgpuBindGroup0() const;
@@ -97,13 +102,27 @@ namespace broccoli {
   private:
     RenderManager &m_manager;
     RenderTarget m_target;
+    RenderCamera m_camera;
+    std::vector<MeshInstanceList> m_mesh_instance_list_vec;
+    std::vector<DirectionalLight> m_directional_light_vec;
+    std::vector<PointLight> m_point_light_vec;
   private:
     static wgpu::CommandEncoderDescriptor s_draw_command_encoder_descriptor;
   private:
     Renderer(RenderManager &renderer, RenderTarget target, RenderCamera camera);
   public:
+    ~Renderer();
+  public:
     void draw(Mesh mesh);
     void draw(Mesh mesh, std::span<glm::mat4x4> const &instance_transforms);
+    void draw(Mesh mesh, std::vector<glm::mat4x4> instance_transforms);
+    void addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color);
+    void addPointLight(glm::vec3 position, float intensity, glm::vec3 color);
+  private:
+    void sendCameraData(RenderCamera camera, RenderTarget target);
+    void sendLightData(std::vector<DirectionalLight> direction_light_vec, std::vector<PointLight> point_light_vec);
+    void sendDrawMeshInstanceListVec(std::vector<MeshInstanceList> mesh_instance_list_vec);
+    void sendDrawMeshInstanceList(MeshInstanceList const &mesh_instance_list);
   };
 }
 
@@ -143,7 +162,7 @@ namespace broccoli {
   class MeshBuilder {
     friend Engine;
   public:
-    struct Vtx { glm::dvec3 offset; glm::dvec4 color; };
+    struct Vtx { glm::dvec3 offset; glm::dvec3 color; float shininess; };
   private:
     wgpu::Device &m_wgpu_device;
     robin_hood::unordered_map<Vertex, uint32_t> m_vtx_compression_map;
@@ -162,10 +181,29 @@ namespace broccoli {
   private:
     void singleFaceTriangle(Vtx v1, Vtx v2, Vtx v3);
   private:
-    uint32_t vertex(glm::dvec3 offset, glm::dvec4 color, uint32_t packed_normal);
+    uint32_t vertex(glm::dvec3 offset, glm::dvec3 color, float shininess, uint32_t packed_normal);
   private:
     static glm::tvec4<int16_t> pack_offset(glm::dvec3 offset);
-    static glm::tvec4<uint8_t> pack_color(glm::dvec4 color);
+    static glm::tvec4<uint8_t> pack_color(glm::dvec3 color, float shininess);
     static uint32_t pack_normal_unorm_10x3_1x2(glm::dvec3 normal);
+  };
+}
+
+//
+// Scene descriptors:
+//
+
+namespace broccoli {
+  struct MeshInstanceList {
+    Mesh mesh;
+    std::vector<glm::mat4x4> instance_list;
+  };
+  struct DirectionalLight {
+    glm::vec3 direction;
+    glm::vec3 color;
+  };
+  struct PointLight {
+    glm::vec3 position;
+    glm::vec3 color;
   };
 }

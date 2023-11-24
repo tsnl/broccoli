@@ -1,6 +1,6 @@
 [submodule "dep/dawn"]
 	path = dep/dawn
-	url = https://dawn.googlesource.com/dawn
+	url = https://dawn.googlesource.com/dawn.git
 	branch = chromium/6141
 
 [submodule "dep/depot_tools"]
