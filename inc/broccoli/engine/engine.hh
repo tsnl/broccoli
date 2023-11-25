@@ -16,6 +16,7 @@ struct GLFWwindow;
 
 namespace broccoli {
   class Engine;
+  class Glfw;
   class Activity;
 }
 
@@ -46,9 +47,21 @@ namespace broccoli {
 }
 
 namespace broccoli {
+  class Glfw {
+  private:
+    GLFWwindow *m_window;
+  public:
+    Glfw(glm::ivec2 size, const char *caption);
+    ~Glfw();
+  public:
+    GLFWwindow *window() const;
+  };
+}
+
+namespace broccoli {
 	class Engine {
 	private:
-		GLFWwindow *m_glfw_window;
+		Glfw m_glfw;
     wgpu::Instance m_wgpu_instance;
     wgpu::Surface m_wgpu_surface;
     wgpu::Adapter m_wgpu_adapter;
@@ -65,8 +78,8 @@ namespace broccoli {
     std::unique_ptr<RenderManager> m_renderer;
     bool m_is_running;
 	public:
-    Engine(const char *caption, int width, int height, double fixed_update_hz = 120.0);
-    ~Engine();
+    Engine(glm::ivec2 size, const char *caption, double fixed_update_hz = 120.0);
+    ~Engine() = default;
   public:
     void run();
     void halt();

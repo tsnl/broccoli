@@ -31,12 +31,40 @@ namespace broccoli {
 }
 
 //
+// GLFW instance:
+//
+
+namespace broccoli {
+  Glfw::Glfw(glm::ivec2 size, const char *caption)
+  : m_window(nullptr)
+  {
+    CHECK(glfwInit(), "Failed to initialize GLFW");
+
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
+    m_window = glfwCreateWindow(size.x, size.y, caption, nullptr, nullptr);
+    CHECK(m_window != nullptr, "Failed to create a window with GLFW");
+  }
+  Glfw::~Glfw() {
+    glfwDestroyWindow(m_window);
+    glfwTerminate();
+  }
+}
+namespace broccoli {
+  GLFWwindow *Glfw::window() const {
+    return m_window;
+  }
+}
+
+//
 // Engine
 //
 
 namespace broccoli {
-  Engine::Engine(const char *caption, int width, int height, double fixed_update_hz)
-  : m_glfw_window(nullptr),
+  Engine::Engine(glm::ivec2 size, const char *caption, double fixed_update_hz)
+  : m_glfw(size, caption),
     m_wgpu_instance(nullptr),
     m_wgpu_surface(nullptr),
     m_wgpu_adapter(nullptr),
@@ -51,26 +79,17 @@ namespace broccoli {
     m_renderer(nullptr),
     m_is_running(false)
   {
-    CHECK(glfwInit(), "Failed to initialize GLFW");
-
     dawnProcSetProcs(&dawn::native::GetProcs());
 
-    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    m_glfw_window = glfwCreateWindow(width, height, caption, nullptr, nullptr);
-    CHECK(m_glfw_window != nullptr, "Failed to create a window with GLFW");
-
     int framebuffer_width, framebuffer_height;
-    glfwGetFramebufferSize(m_glfw_window, &framebuffer_width, &framebuffer_height);
+    glfwGetFramebufferSize(m_glfw.window(), &framebuffer_width, &framebuffer_height);
     m_framebuffer_size = glm::ivec2{framebuffer_width, framebuffer_height};
 
     wgpu::InstanceDescriptor instance_descriptor = {.nextInChain = nullptr};
     m_wgpu_instance = wgpu::CreateInstance(&instance_descriptor);
     CHECK(m_wgpu_instance != nullptr, "Failed to create a WebGPU instance");
 
-    m_wgpu_surface = wgpu::glfw::CreateSurfaceForWindow(m_wgpu_instance, m_glfw_window);
+    m_wgpu_surface = wgpu::glfw::CreateSurfaceForWindow(m_wgpu_instance, m_glfw.window());
     CHECK(m_wgpu_surface != nullptr, "Failed to create a WebGPU surface");
 
     wgpu::RequestAdapterOptions adapter_opts = {.compatibleSurface=m_wgpu_surface};
@@ -101,10 +120,6 @@ namespace broccoli {
 
     m_renderer = std::make_unique<RenderManager>(m_wgpu_device, m_framebuffer_size);
   }
-  Engine::~Engine() {
-    glfwDestroyWindow(m_glfw_window);
-    glfwTerminate();
-  }
 }
 namespace broccoli {
   void Engine::run() {
@@ -113,8 +128,8 @@ namespace broccoli {
     m_prev_update_timestamp_sec = glfwGetTime();
     m_fixed_update_accum_time = 0.0;
     m_is_running = true;
-    glfwShowWindow(m_glfw_window);
-    while (!glfwWindowShouldClose(m_glfw_window)) {
+    glfwShowWindow(m_glfw.window());
+    while (!glfwWindowShouldClose(m_glfw.window())) {
       beginFrame();
       dispatchEvents();
       update();
