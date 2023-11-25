@@ -246,16 +246,17 @@ namespace broccoli {
       .blend = &blend_state,
       .writeMask = wgpu::ColorWriteMask::All,
     };
-    std::array<wgpu::VertexAttribute, 3> vertex_buffer_attrib_layout = {
-      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Sint16x4, .offset=offsetof(Vertex, offset), .shaderLocation=0},
-      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Uint8x4, .offset=offsetof(Vertex, color), .shaderLocation=1},
-      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Unorm10_10_10_2, .offset=offsetof(Vertex, normal), .shaderLocation=2},
+    std::array<wgpu::VertexAttribute, 4> vertex_buffer_attrib_layout = {
+      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Sint32x3, .offset=offsetof(Vertex, offset), .shaderLocation=0},
+      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Uint32, .offset=offsetof(Vertex, shininess), .shaderLocation=1},
+      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Uint8x4, .offset=offsetof(Vertex, color), .shaderLocation=2},
+      wgpu::VertexAttribute{.format=wgpu::VertexFormat::Unorm10_10_10_2, .offset=offsetof(Vertex, normal), .shaderLocation=3},
     };
     wgpu::VertexBufferLayout vertex_buffer_layout = {
       .arrayStride = sizeof(Vertex),
       .stepMode = wgpu::VertexStepMode::Vertex,
-      .attributeCount = 3,
-      .attributes = &vertex_buffer_attrib_layout[0],
+      .attributeCount = vertex_buffer_attrib_layout.size(),
+      .attributes = vertex_buffer_attrib_layout.data(),
     };
     wgpu::VertexState vertex_state = {
       .nextInChain = nullptr,
@@ -677,10 +678,11 @@ namespace broccoli {
     queue.WriteBuffer(mesh.idx_buffer, 0, mb.m_idx_buf.data(), idx_buf_size);
     return mesh;
   }
-  uint32_t MeshBuilder::vertex(glm::dvec3 offset, glm::dvec3 color, float shininess, uint32_t packed_normal) {
+  uint32_t MeshBuilder::vertex(glm::dvec3 offset, glm::dvec3 color, double shininess, uint32_t packed_normal) {
     auto packed_offset = pack_offset(offset);
-    auto packed_color = pack_color(color, shininess);
-    broccoli::Vertex packed_vertex = {.offset=packed_offset, .color=packed_color, .normal=packed_normal};
+    auto packed_shininess = pack_shininess(shininess);
+    auto packed_color = pack_color(color);
+    broccoli::Vertex packed_vertex = {.offset=packed_offset, .shininess=packed_shininess, .color=packed_color, .normal=packed_normal};
     auto packed_vertex_it = m_vtx_compression_map.find(packed_vertex);
     if (packed_vertex_it != m_vtx_compression_map.end()) {
       return packed_vertex_it->second;
@@ -698,24 +700,46 @@ namespace broccoli {
     m_vtx_buf.emplace_back(packed_vertex);
     return new_vtx_idx;
   }
-  glm::tvec4<int16_t> MeshBuilder::pack_offset(glm::dvec3 pos) {
-    // Packing into 12.4 signed fix-point per-component
-    auto pos_fixpt = glm::round(glm::clamp(pos * 16.0, -32768.0, +32767.0));
+  glm::ivec3 MeshBuilder::pack_offset(glm::dvec3 pos) {
+    // Packing into 12.20 signed fix-point per-component.
+    // This packing is accurate to at least 6 decimal places.
+    // This degree of precision is overkill, but this is the point: it's something the user should never need to worry
+    // about.
+    constexpr auto lo = static_cast<double>(INT32_MIN) / 1048576.0;
+    constexpr auto hi = static_cast<double>(INT32_MAX) / 1048576.0;
+    DEBUG_CHECK(lo <= pos.x && pos.x <= hi, "Vertex position X does not fit in fixed-point scheme.");
+    DEBUG_CHECK(lo <= pos.y && pos.y <= hi, "Vertex position Y does not fit in fixed-point scheme.");
+    DEBUG_CHECK(lo <= pos.z && pos.z <= hi, "Vertex position Z does not fit in fixed-point scheme.");
+    glm::dvec3 pos_fixpt = pos;
+    pos_fixpt = glm::round(pos_fixpt * 1048576.0);
+    pos_fixpt = glm::clamp(pos_fixpt, static_cast<double>(INT32_MIN), static_cast<double>(INT32_MAX));
     return {
-      static_cast<int16_t>(pos_fixpt.x),
-      static_cast<int16_t>(pos_fixpt.y),
-      static_cast<int16_t>(pos_fixpt.z),
-      16.0,
+      static_cast<int32_t>(pos_fixpt.x),
+      static_cast<int32_t>(pos_fixpt.y),
+      static_cast<int32_t>(pos_fixpt.z),
     };
   }
-  glm::tvec4<uint8_t> MeshBuilder::pack_color(glm::dvec3 color, float shininess) {
+  uint32_t MeshBuilder::pack_shininess(double shininess) {
+    // Packing into 22.10 signed fix-point.
+    // This packing is accurate to at least 3 decimal places.
+    constexpr auto lo = 0.0;
+    constexpr auto hi = static_cast<double>(UINT32_MAX) / 1024.0;
+    DEBUG_CHECK(lo <= shininess && shininess <= hi, "Vertex shininess does not fit in fixed-point scheme.");
+    double shininess_fixpt = shininess;
+    shininess_fixpt = glm::round(shininess_fixpt * 1024.0);
+    shininess_fixpt = glm::clamp(shininess_fixpt, 0.0, static_cast<double>(UINT32_MAX));
+    return static_cast<uint32_t>(shininess_fixpt);
+  }
+  glm::u8vec4 MeshBuilder::pack_color(glm::dvec3 color) {
+    // Packing into traditional 8-bit fix-point per-component: [0, 1] -> [0, 255].
+    // Unlike other packing methods, we allow 'color' to overflow without a debug check since this representation is 
+    // well understood and since saturating behavior makes more sense in color spaces than coordinate systems.
     auto pos_fixpt = glm::round(glm::clamp(color, 0.0, 1.0) * 255.0);
-    auto shininess_fixpt = glm::round(glm::clamp(shininess, 0.0f, 1.0f) * 255.0);
     return {
       static_cast<uint8_t>(pos_fixpt.x),
       static_cast<uint8_t>(pos_fixpt.y),
       static_cast<uint8_t>(pos_fixpt.z),
-      static_cast<uint8_t>(shininess_fixpt),
+      0xFF
     };
   }
   uint32_t MeshBuilder::pack_normal_unorm_10x3_1x2(glm::dvec3 normal) {

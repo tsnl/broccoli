@@ -26,6 +26,12 @@ namespace broccoli {
 #define PANIC(...)  	    broccoli::panic(fmt::format(__VA_ARGS__), __FILE__, __LINE__)
 #define CHECK(COND, MORE) broccoli::check((COND), #COND, (MORE), __FILE__, __LINE__)
 
+#ifdef NDEBUG
+# define DEBUG_CHECK(COND, MORE) /* no expansion: disabled in release mode */
+#else
+# define DEBUG_CHECK(COND, MORE) CHECK((COND), MORE)
+#endif
+
 //
 // File I/O:
 //

@@ -33,9 +33,10 @@ struct CameraUniform {
 struct VertexInput {
   @builtin(vertex_index) vertex_index: u32,
   @builtin(instance_index) instance_index: u32,
-  @location(0) raw_position: vec4<i32>,
-  @location(1) raw_color: vec4<u32>,
-  @location(2) raw_normal: vec4<f32>,
+  @location(0) raw_position: vec3<i32>,
+  @location(1) raw_shininess: u32,
+  @location(2) raw_color: vec4<u32>,
+  @location(3) raw_normal: vec4<f32>,
 };
 struct FragmentInput {
   @builtin(position) clip_position: vec4<f32>,
@@ -51,9 +52,9 @@ struct FragmentInput {
 
 @vertex
 fn vs_main(vertex_input: VertexInput) -> FragmentInput {
-  let position = vec3<f32>(vertex_input.raw_position.xyz) / 16.0;
+  let position = unpackPosition(vertex_input.raw_position);
+  let shininess = f32(vertex_input.raw_shininess) / 1024.0;
   let color = vec3<f32>(vertex_input.raw_color.xyz) / 255.0;
-  let shininess = f32(vertex_input.raw_color.w) / 255.0;
   let normal = 2.0 * vertex_input.raw_normal.xyz - 1.0;
 
   let model_matrix = u_model_mats[vertex_input.instance_index];
@@ -74,6 +75,19 @@ fn vs_main(vertex_input: VertexInput) -> FragmentInput {
   fragment_input.world_normal = vec4(world_normal, 1.0f);
   fragment_input.instance_index = vertex_input.instance_index;
   return fragment_input;
+}
+fn unpackPosition(raw_position: vec3<i32>) -> vec3<f32> {
+  let position_lo = vec3<f32>(
+    f32(raw_position.x & 0xFFFFF) / 1048576.0,
+    f32(raw_position.y & 0xFFFFF) / 1048576.0,
+    f32(raw_position.z & 0xFFFFF) / 1048576.0,
+  );
+  let position_hi = vec3<f32>(
+    f32(raw_position.x >> 20),
+    f32(raw_position.y >> 20),
+    f32(raw_position.z >> 20),
+  );
+  return position_hi + position_lo;
 }
 
 @fragment

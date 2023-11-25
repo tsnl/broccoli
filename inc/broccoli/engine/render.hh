@@ -138,9 +138,9 @@ namespace broccoli {
 //
 
 namespace broccoli {
-  struct Vertex { glm::tvec4<int16_t> offset; glm::tvec4<uint8_t> color; uint32_t normal; };
+  struct Vertex { glm::ivec3 offset; uint32_t shininess; glm::u8vec4 color; uint32_t normal; };
   inline bool operator== (Vertex v1, Vertex v2);
-  static_assert(sizeof(Vertex) == 16, "expected sizeof(Vertex) == 16");
+  static_assert(sizeof(Vertex) == 24, "expected sizeof(Vertex) == 24B");
 }
 namespace broccoli {
   inline bool operator== (Vertex v1, Vertex v2) {
@@ -169,7 +169,7 @@ namespace broccoli {
   class MeshBuilder {
     friend RenderManager;
   public:
-    struct Vtx { glm::dvec3 offset; glm::dvec3 color; float shininess; };
+    struct Vtx { glm::dvec3 offset; glm::dvec3 color; double shininess; };
   private:
     RenderManager &m_manager;
     robin_hood::unordered_map<Vertex, uint32_t> m_vtx_compression_map;
@@ -189,10 +189,11 @@ namespace broccoli {
   private:
     void singleFaceTriangle(Vtx v1, Vtx v2, Vtx v3);
   private:
-    uint32_t vertex(glm::dvec3 offset, glm::dvec3 color, float shininess, uint32_t packed_normal);
+    uint32_t vertex(glm::dvec3 offset, glm::dvec3 color, double shininess, uint32_t packed_normal);
   private:
-    static glm::tvec4<int16_t> pack_offset(glm::dvec3 offset);
-    static glm::tvec4<uint8_t> pack_color(glm::dvec3 color, float shininess);
+    static glm::ivec3 pack_offset(glm::dvec3 offset);
+    static uint32_t pack_shininess(double shininess);
+    static glm::u8vec4 pack_color(glm::dvec3 color);
     static uint32_t pack_normal_unorm_10x3_1x2(glm::dvec3 normal);
   };
 }
