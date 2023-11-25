@@ -41,6 +41,17 @@ namespace broccoli {
 }
 
 //
+// StandardLayout (similar to POD)
+//
+
+namespace broccoli {
+  template <typename T>
+  concept StandardLayout = requires {
+    std::is_standard_layout<T>::value;
+  };
+}
+
+//
 // Hashing:
 //
 
@@ -49,10 +60,6 @@ namespace broccoli {
   concept HasherBackend = requires(T a, uint8_t b) {
     a.write(b);
     { a.finish() } -> std::same_as<uint64_t>;
-  };
-  template <typename T>
-  concept StandardLayout = requires {
-    std::is_standard_layout<T>::value;
   };
 }
 namespace broccoli {

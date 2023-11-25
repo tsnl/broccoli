@@ -19,13 +19,6 @@ namespace broccoli {
 }
 
 namespace broccoli {
-  struct Vertex;
-  struct Mesh;
-  struct MeshInstanceList;
-  struct DirectionalLight;
-  struct PointLight;
-}
-namespace broccoli {
   class RenderManager;
   class RenderFrame;
   class Renderer;
@@ -33,6 +26,11 @@ namespace broccoli {
 namespace broccoli {
   class MeshBuilder;
   class MeshFactory;
+  struct MeshInstanceList;
+  struct DirectionalLight;
+  struct PointLight;
+  struct Mesh;
+  struct Vertex;
 }
 
 //
@@ -178,6 +176,7 @@ namespace std {
     }
   };
 }
+
 namespace broccoli {
   struct Mesh {
     wgpu::Buffer vtx_buffer;
@@ -186,6 +185,7 @@ namespace broccoli {
     uint32_t idx_count;
   };
 }
+
 namespace broccoli {
   class MeshBuilder {
     friend RenderManager;
@@ -219,10 +219,6 @@ namespace broccoli {
   };
 }
 
-//
-// MeshFactory: one-shot function calls to construct common geometry.
-//
-
 namespace broccoli {
   class MeshFactory {
     friend RenderManager;
@@ -241,10 +237,6 @@ namespace broccoli {
     Mesh createCuboid(glm::dvec3 dimensions, Facet common_facet);
   };
 }
-
-//
-// Scene descriptors:
-//
 
 namespace broccoli {
   struct MeshInstanceList {

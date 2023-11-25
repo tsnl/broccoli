@@ -15,6 +15,7 @@ include("cmake/FetchGlm.cmake")
 include("cmake/FetchFmt.cmake")
 include("cmake/FetchRobinHoodHashing.cmake")
 include("cmake/FetchCxxopts.cmake")
+include("cmake/FetchStbImage.cmake")
 
 #
 # Build targets:
@@ -25,9 +26,10 @@ add_strict_library(
   "src/broccoli/engine/core.cc"
   "src/broccoli/engine/engine.cc"
   "src/broccoli/engine/render.cc"
+  "src/broccoli/engine/bitmap.cc"
 )
 target_include_directories(broccoli-engine PUBLIC "inc")
-target_link_libraries(broccoli-engine PUBLIC glm fmt robin_hood)
+target_link_libraries(broccoli-engine PUBLIC glm fmt robin_hood stb-image)
 target_link_libraries(broccoli-engine PUBLIC dawn_proc dawn_glfw dawn_native dawncpp)
 
 add_strict_library(

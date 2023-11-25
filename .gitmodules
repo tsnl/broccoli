@@ -7,3 +7,8 @@
 	path = dep/depot_tools
 	url = https://chromium.googlesource.com/chromium/tools/depot_tools.git
   branch = chrome/4147
+
+[submodule "dep/stb"]
+	path = dep/stb
+	url = https://github.com/nothings/stb
+  branch = master
