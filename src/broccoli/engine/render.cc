@@ -18,8 +18,8 @@ namespace broccoli {
 }
 namespace broccoli {
   static const char *R3D_SHADER_FILEPATH = "res/render3d.wgsl";
-  static const char *R3D_SHADER_VS_ENTRY_POINT_NAME = "vs_main";
-  static const char *R3D_SHADER_FS_ENTRY_POINT_NAME = "fs_main";
+  static const char *R3D_SHADER_VS_ENTRY_POINT_NAME = "vertexShaderMain";
+  static const char *R3D_SHADER_FS_ENTRY_POINT_NAME = "fragmentShaderMain";
 }
 namespace broccoli {
   static const uint64_t R3D_VERTEX_BUFFER_CAPACITY = 1 << 16;
@@ -644,7 +644,7 @@ namespace broccoli {
       // Degenerate triangle: normal of length close to 0 means that angle of separation between edges is close to 0.
       return;
     }
-    auto unorm_normal = pack_normal_unorm_10x3_1x2(normal);
+    auto unorm_normal = packNormal(normal);
     auto iv1 = vertex(v1.offset, v1.color, v1.shininess, unorm_normal);
     auto iv2 = vertex(v2.offset, v2.color, v2.shininess, unorm_normal);
     auto iv3 = vertex(v3.offset, v3.color, v3.shininess, unorm_normal);
@@ -679,9 +679,9 @@ namespace broccoli {
     return mesh;
   }
   uint32_t MeshBuilder::vertex(glm::dvec3 offset, glm::dvec3 color, double shininess, uint32_t packed_normal) {
-    auto packed_offset = pack_offset(offset);
-    auto packed_shininess = pack_shininess(shininess);
-    auto packed_color = pack_color(color);
+    auto packed_offset = packOffset(offset);
+    auto packed_shininess = packShininess(shininess);
+    auto packed_color = packColor(color);
     broccoli::Vertex packed_vertex = {.offset=packed_offset, .shininess=packed_shininess, .color=packed_color, .normal=packed_normal};
     auto packed_vertex_it = m_vtx_compression_map.find(packed_vertex);
     if (packed_vertex_it != m_vtx_compression_map.end()) {
@@ -700,7 +700,7 @@ namespace broccoli {
     m_vtx_buf.emplace_back(packed_vertex);
     return new_vtx_idx;
   }
-  glm::ivec3 MeshBuilder::pack_offset(glm::dvec3 pos) {
+  glm::ivec3 MeshBuilder::packOffset(glm::dvec3 pos) {
     // Packing into 12.20 signed fix-point per-component.
     // This packing is accurate to at least 6 decimal places.
     // This degree of precision is overkill, but this is the point: it's something the user should never need to worry
@@ -719,7 +719,7 @@ namespace broccoli {
       static_cast<int32_t>(pos_fixpt.z),
     };
   }
-  uint32_t MeshBuilder::pack_shininess(double shininess) {
+  uint32_t MeshBuilder::packShininess(double shininess) {
     // Packing into 22.10 signed fix-point.
     // This packing is accurate to at least 3 decimal places.
     constexpr auto lo = 0.0;
@@ -730,7 +730,7 @@ namespace broccoli {
     shininess_fixpt = glm::clamp(shininess_fixpt, 0.0, static_cast<double>(UINT32_MAX));
     return static_cast<uint32_t>(shininess_fixpt);
   }
-  glm::u8vec4 MeshBuilder::pack_color(glm::dvec3 color) {
+  glm::u8vec4 MeshBuilder::packColor(glm::dvec3 color) {
     // Packing into traditional 8-bit fix-point per-component: [0, 1] -> [0, 255].
     // Unlike other packing methods, we allow 'color' to overflow without a debug check since this representation is 
     // well understood and since saturating behavior makes more sense in color spaces than coordinate systems.
@@ -742,7 +742,7 @@ namespace broccoli {
       0xFF
     };
   }
-  uint32_t MeshBuilder::pack_normal_unorm_10x3_1x2(glm::dvec3 normal) {
+  uint32_t MeshBuilder::packNormal(glm::dvec3 normal) {
     auto unsigned_normal = (normal + 1.0) * 0.5;
     auto packed_normal = glm::packUnorm3x10_1x2({unsigned_normal, 0.0});
     return packed_normal;

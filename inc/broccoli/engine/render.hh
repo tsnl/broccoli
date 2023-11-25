@@ -191,10 +191,10 @@ namespace broccoli {
   private:
     uint32_t vertex(glm::dvec3 offset, glm::dvec3 color, double shininess, uint32_t packed_normal);
   private:
-    static glm::ivec3 pack_offset(glm::dvec3 offset);
-    static uint32_t pack_shininess(double shininess);
-    static glm::u8vec4 pack_color(glm::dvec3 color);
-    static uint32_t pack_normal_unorm_10x3_1x2(glm::dvec3 normal);
+    static glm::ivec3 packOffset(glm::dvec3 offset);
+    static uint32_t packShininess(double shininess);
+    static glm::u8vec4 packColor(glm::dvec3 color);
+    static uint32_t packNormal(glm::dvec3 normal);
   };
 }
 
