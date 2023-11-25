@@ -29,7 +29,7 @@ namespace broccoli {
     );
   }
   void SampleActivity2::draw(broccoli::RenderFrame &frame) {
-    frame.clear(glm::dvec3{0.00});
+    frame.clear(glm::dvec3{0.34, 0.55, 0.90});
     auto renderer = frame.useCamera(RenderCamera::fromLookAt(
       glm::vec3{30.0f, 30.0f, 45.0f},
       glm::vec3{00.0f, 04.0f, 00.0f},
