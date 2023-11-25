@@ -51,7 +51,7 @@ namespace broccoli {
   private:
     GLFWwindow *m_window;
   public:
-    Glfw(glm::ivec2 size, const char *caption);
+    Glfw(glm::ivec2 size, const char *caption, bool fullscreen);
     ~Glfw();
   public:
     GLFWwindow *window() const;
@@ -78,7 +78,7 @@ namespace broccoli {
     std::unique_ptr<RenderManager> m_renderer;
     bool m_is_running;
 	public:
-    Engine(glm::ivec2 size, const char *caption, double fixed_update_hz = 120.0);
+    Engine(glm::ivec2 size, const char *caption, bool fullscreen = false, double fixed_update_hz = 120.0);
     ~Engine() = default;
   public:
     void run();

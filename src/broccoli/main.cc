@@ -44,7 +44,7 @@ static cxxopts::ParseResult parseCliArgs(int argc, const char *argv[]) {
 }
 
 static void runSample(int sample_id) {
-  broccoli::Engine engine{glm::ivec2{800, 450}, "broccoli"};
+  broccoli::Engine engine{glm::ivec2{1280, 720}, "broccoli"};
   switch (sample_id) {
     case 1:
       engine.pushActivity([] (broccoli::Engine &engine) -> std::unique_ptr<broccoli::Activity> {

@@ -71,6 +71,27 @@ namespace broccoli {
 }
 
 //
+// Interface: RenderCamera
+//
+
+namespace broccoli {
+  RenderCamera::RenderCamera(glm::mat4x4 view_matrix, glm::vec3 position, float fovy_deg)
+  : view_matrix(view_matrix),
+    position(position),
+    fovy_deg(fovy_deg)
+  {}
+  RenderCamera RenderCamera::createDefault(float fovy_deg) {
+    return {glm::mat4x4{1.0f}, glm::vec3{0.0f}, fovy_deg};
+  }
+  RenderCamera RenderCamera::fromTransform(glm::mat4x4 transform, float fovy_deg) {
+    return {glm::inverse(transform), transform[3], fovy_deg};
+  }
+  RenderCamera RenderCamera::fromLookAt(glm::vec3 eye, glm::vec3 target, glm::vec3 up, float fovy_deg) {
+    return {glm::lookAt(eye, target, up), eye, fovy_deg};
+  }
+}
+
+//
 // Interface: Renderer
 //
 
@@ -438,7 +459,7 @@ namespace broccoli {
     m_manager.wgpuDevice().GetQueue().Submit(1, &command_buffer);
   }
   
-  Renderer RenderFrame::use_camera(RenderCamera camera) {
+  Renderer RenderFrame::useCamera(RenderCamera camera) {
     return {m_manager, m_target, camera};
   }
 }
@@ -497,8 +518,8 @@ namespace broccoli {
     const float fovy_rad = (camera.fovy_deg / 360.0f) * (2.0f * static_cast<float>(M_PI));
     const float aspect = target.size.x / static_cast<float>(target.size.y);
     const CameraUniform buf = {
-      .view_matrix = glm::inverse(camera.transform),
-      .world_position = camera.transform * glm::vec4{glm::vec3{0.0f}, 1.0f},
+      .view_matrix = camera.view_matrix,
+      .world_position = glm::vec4{camera.position, 1.0f},
       .camera_cot_half_fovy = 1.0f / std::tanf(fovy_rad / 2.0f),
       .camera_aspect_inv = 1.0f / aspect,
       .camera_zmin = 000.050f,

@@ -35,7 +35,7 @@ namespace broccoli {
 //
 
 namespace broccoli {
-  Glfw::Glfw(glm::ivec2 size, const char *caption)
+  Glfw::Glfw(glm::ivec2 size, const char *caption, bool fullscreen)
   : m_window(nullptr)
   {
     CHECK(glfwInit(), "Failed to initialize GLFW");
@@ -44,7 +44,7 @@ namespace broccoli {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
-    m_window = glfwCreateWindow(size.x, size.y, caption, nullptr, nullptr);
+    m_window = glfwCreateWindow(size.x, size.y, caption, fullscreen ? glfwGetPrimaryMonitor() : nullptr, nullptr);
     CHECK(m_window != nullptr, "Failed to create a window with GLFW");
   }
   Glfw::~Glfw() {
@@ -63,8 +63,8 @@ namespace broccoli {
 //
 
 namespace broccoli {
-  Engine::Engine(glm::ivec2 size, const char *caption, double fixed_update_hz)
-  : m_glfw(size, caption),
+  Engine::Engine(glm::ivec2 size, const char *caption, bool fullscreen, double fixed_update_hz)
+  : m_glfw(size, caption, fullscreen),
     m_wgpu_instance(nullptr),
     m_wgpu_surface(nullptr),
     m_wgpu_adapter(nullptr),

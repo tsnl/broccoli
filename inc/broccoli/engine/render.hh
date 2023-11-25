@@ -41,7 +41,24 @@ namespace broccoli {
 
 namespace broccoli {
   struct RenderTarget { wgpu::TextureView &texture_view; glm::ivec2 size; };
-  struct RenderCamera { glm::mat4x4 transform; float fovy_deg; };
+}
+namespace broccoli {
+  struct RenderCamera {
+  public:
+    glm::mat4x4 view_matrix;
+    glm::vec3 position;
+    float fovy_deg;
+  private:
+    RenderCamera(glm::mat4x4 view_matrix, glm::vec3 position, float fovy_deg);
+    RenderCamera() = delete;
+  public:
+    RenderCamera(const RenderCamera &other) = default;
+    RenderCamera(RenderCamera &&other) = default;
+  public:
+    static RenderCamera createDefault(float fovy_deg = 90.0f);
+    static RenderCamera fromTransform(glm::mat4x4 transform, float fovy_deg);
+    static RenderCamera fromLookAt(glm::vec3 eye, glm::vec3 target, glm::vec3 up, float fovy_deg);
+  };
 }
 
 namespace broccoli {
@@ -102,7 +119,7 @@ namespace broccoli {
     RenderFrame(RenderManager &manager, RenderTarget target);
   public:
     void clear(glm::dvec3 clear_color);
-    Renderer use_camera(RenderCamera camera);
+    Renderer useCamera(RenderCamera camera);
   };
 }
 

@@ -21,7 +21,7 @@ namespace broccoli {
   }
   void SampleActivity1::draw(broccoli::RenderFrame &frame) {
     frame.clear(glm::dvec3{0.00});
-    auto renderer = frame.use_camera({.transform=glm::mat4x4{1.0}, .fovy_deg=45.0});
+    auto renderer = frame.useCamera(RenderCamera::createDefault(45.0f));
     auto animation_progress = std::fmod(engine().currUpdateTimestampSec(), 5.0) / 5.0;
     auto angular_position = static_cast<float>(animation_progress * 2 * M_PI);
     auto translation = glm::translate(glm::vec3{0.00f, 1.00f * std::cos(animation_progress * 2*M_PI), -5.00f});
