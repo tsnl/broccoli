@@ -85,7 +85,7 @@ namespace broccoli {
     glfwGetFramebufferSize(m_glfw.window(), &framebuffer_width, &framebuffer_height);
     m_framebuffer_size = glm::ivec2{framebuffer_width, framebuffer_height};
 
-    wgpu::InstanceDescriptor instance_descriptor = {.nextInChain = nullptr};
+    wgpu::InstanceDescriptor instance_descriptor = {};
     m_wgpu_instance = wgpu::CreateInstance(&instance_descriptor);
     CHECK(m_wgpu_instance != nullptr, "Failed to create a WebGPU instance");
 

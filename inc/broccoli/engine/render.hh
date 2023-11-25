@@ -56,8 +56,10 @@ namespace broccoli {
     wgpu::PipelineLayout m_wgpu_render_pipeline_layout;
     wgpu::RenderPipeline m_wgpu_render_pipeline;
     wgpu::BindGroup m_wgpu_bind_group_0;
-    wgpu::Texture m_wgpu_depth_stencil_texture;
-    wgpu::TextureView m_wgpu_depth_stencil_texture_view;
+    wgpu::Texture m_wgpu_render_target_color_texture;
+    wgpu::TextureView m_wgpu_render_target_color_texture_view;
+    wgpu::Texture m_wgpu_render_target_depth_stencil_texture;
+    wgpu::TextureView m_wgpu_render_target_depth_stencil_texture_view;
   public:
     RenderManager(wgpu::Device &device, glm::ivec2 framebuffer_size);
   public:
@@ -71,7 +73,8 @@ namespace broccoli {
     void initRenderPipelineLayout();
     void initRenderPipeline();
     void initBindGroup0();
-    void initDepthStencilTexture(glm::ivec2 framebuffer_size);
+    void reinitColorTexture(glm::ivec2 framebuffer_size);
+    void reinitDepthStencilTexture(glm::ivec2 framebuffer_size);
   public:
     MeshBuilder createMeshBuilder();
     MeshFactory createMeshFactory();
@@ -82,7 +85,8 @@ namespace broccoli {
     wgpu::Buffer const &wgpuCameraUniformBuffer() const;
     wgpu::Buffer const &wgpuTransformUniformBuffer() const;
     wgpu::BindGroup const &wgpuBindGroup0() const;
-    wgpu::TextureView const &wgpuDepthStencilTextureView() const;
+    wgpu::TextureView const &wgpuRenderTargetColorTextureView() const;
+    wgpu::TextureView const &wgpuRenderTargetDepthStencilTextureView() const;
   public:
     RenderFrame frame(RenderTarget target);
   };
@@ -119,17 +123,17 @@ namespace broccoli {
   public:
     ~Renderer();
   public:
-    void draw(Mesh mesh);
-    void draw(Mesh mesh, glm::mat4x4 instance_transform);
-    void draw(Mesh mesh, std::span<glm::mat4x4> instance_transforms);
-    void draw(Mesh mesh, std::vector<glm::mat4x4> instance_transforms);
+    void draw(const Mesh &mesh);
+    void draw(const Mesh &mesh, glm::mat4x4 instance_transform);
+    void draw(const Mesh &mesh, std::span<glm::mat4x4> instance_transforms);
+    void draw(const Mesh &mesh, std::vector<glm::mat4x4> instance_transforms);
     void addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color);
     void addPointLight(glm::vec3 position, float intensity, glm::vec3 color);
   private:
     void sendCameraData(RenderCamera camera, RenderTarget target);
     void sendLightData(std::vector<DirectionalLight> direction_light_vec, std::vector<PointLight> point_light_vec);
     void sendDrawMeshInstanceListVec(std::vector<MeshInstanceList> mesh_instance_list_vec);
-    void sendDrawMeshInstanceList(MeshInstanceList const &mesh_instance_list);
+    void sendDrawMeshInstanceList(const MeshInstanceList &mesh_instance_list);
   };
 }
 
@@ -227,7 +231,7 @@ namespace broccoli {
 
 namespace broccoli {
   struct MeshInstanceList {
-    Mesh mesh;
+    const Mesh &mesh;
     std::vector<glm::mat4x4> instance_list;
   };
   struct DirectionalLight {

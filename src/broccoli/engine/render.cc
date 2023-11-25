@@ -14,9 +14,6 @@
 //
 
 namespace broccoli {
-  static const wgpu::TextureFormat SWAPCHAIN_TEXTURE_FORMAT = wgpu::TextureFormat::BGRA8Unorm;
-}
-namespace broccoli {
   static const char *R3D_SHADER_FILEPATH = "res/render3d.wgsl";
   static const char *R3D_SHADER_VS_ENTRY_POINT_NAME = "vertexShaderMain";
   static const char *R3D_SHADER_FS_ENTRY_POINT_NAME = "fragmentShaderMain";
@@ -30,7 +27,12 @@ namespace broccoli {
   static const float R3D_DEFAULT_AMBIENT_GLOW = 0.05f;
 }
 namespace broccoli {
+  static const wgpu::TextureFormat R3D_SWAPCHAIN_TEXTURE_FORMAT = wgpu::TextureFormat::BGRA8Unorm;
+  static const wgpu::TextureFormat R3D_COLOR_TEXTURE_FORMAT = wgpu::TextureFormat::BGRA8Unorm;
   static const wgpu::TextureFormat R3D_DEPTH_TEXTURE_FORMAT = wgpu::TextureFormat::Depth24Plus;
+}
+namespace broccoli {
+  static const uint32_t R3D_MSAA_SAMPLE_COUNT = 4;
 }
 
 //
@@ -83,8 +85,10 @@ namespace broccoli {
     m_wgpu_render_pipeline_layout(nullptr),
     m_wgpu_render_pipeline(nullptr),
     m_wgpu_bind_group_0(nullptr),
-    m_wgpu_depth_stencil_texture(nullptr),
-    m_wgpu_depth_stencil_texture_view(nullptr)
+    m_wgpu_render_target_color_texture(nullptr),
+    m_wgpu_render_target_color_texture_view(nullptr),
+    m_wgpu_render_target_depth_stencil_texture(nullptr),
+    m_wgpu_render_target_depth_stencil_texture_view(nullptr)
   {
     initShaderModule();
     initUniforms();
@@ -92,7 +96,8 @@ namespace broccoli {
     initRenderPipelineLayout();
     initRenderPipeline();
     initBindGroup0();
-    initDepthStencilTexture(framebuffer_size);
+    reinitColorTexture(framebuffer_size);
+    reinitDepthStencilTexture(framebuffer_size);
   }
   void RenderManager::initShaderModule() {
     const char *filepath = R3D_SHADER_FILEPATH;
@@ -154,8 +159,44 @@ namespace broccoli {
     };
     m_wgpu_transform_uniform_buffer = m_wgpu_device.CreateBuffer(&draw_transform_uniform_buffer_descriptor);
   }
-  void RenderManager::initDepthStencilTexture(glm::ivec2 framebuffer_size) {
-    wgpu::TextureDescriptor depth_texture_descriptor = {
+  void RenderManager::reinitColorTexture(glm::ivec2 framebuffer_size) {
+    if (m_wgpu_render_target_color_texture) {
+      m_wgpu_render_target_color_texture.Destroy();
+      m_wgpu_render_target_color_texture = nullptr;
+    }
+
+    wgpu::TextureDescriptor color_texture_descriptor = {
+      .label = "Broccoli.Renderer.Draw.RenderTarget.ColorTexture",
+      .usage = wgpu::TextureUsage::RenderAttachment,
+      .dimension = wgpu::TextureDimension::e2D,
+      .size = wgpu::Extent3D {
+        .width = static_cast<uint32_t>(framebuffer_size.x),
+        .height = static_cast<uint32_t>(framebuffer_size.y),
+      },
+      .format = R3D_COLOR_TEXTURE_FORMAT,
+      .mipLevelCount = 1,
+      .sampleCount = R3D_MSAA_SAMPLE_COUNT,
+    };
+    m_wgpu_render_target_color_texture = m_wgpu_device.CreateTexture(&color_texture_descriptor);
+    
+    wgpu::TextureViewDescriptor color_texture_view_descriptor = {
+      .label = "Broccoli.Renderer.Draw.RenderTarget.ColorTextureView",
+      .format = R3D_COLOR_TEXTURE_FORMAT,
+      .dimension = wgpu::TextureViewDimension::e2D,
+      .baseMipLevel = 0,
+      .mipLevelCount = 1,
+      .baseArrayLayer = 0,
+      .arrayLayerCount = 1,
+      .aspect = wgpu::TextureAspect::All,
+    };
+    m_wgpu_render_target_color_texture_view = m_wgpu_render_target_color_texture.CreateView(&color_texture_view_descriptor);
+  }
+  void RenderManager::reinitDepthStencilTexture(glm::ivec2 framebuffer_size) {
+    if (m_wgpu_render_target_depth_stencil_texture) {
+      m_wgpu_render_target_depth_stencil_texture.Destroy();
+      m_wgpu_render_target_depth_stencil_texture = nullptr;
+    }
+    wgpu::TextureDescriptor depth_texture_view_descriptor = {
       .label = "Broccoli.Renderer.Draw.RenderTarget.DepthStencilTexture",
       .usage = wgpu::TextureUsage::RenderAttachment,
       .dimension = wgpu::TextureDimension::e2D,
@@ -165,11 +206,9 @@ namespace broccoli {
       },
       .format = R3D_DEPTH_TEXTURE_FORMAT,
       .mipLevelCount = 1,
-      .sampleCount = 1,
-      .viewFormatCount = 1,
-      .viewFormats = &R3D_DEPTH_TEXTURE_FORMAT,
+      .sampleCount = R3D_MSAA_SAMPLE_COUNT,
     };
-    m_wgpu_depth_stencil_texture = m_wgpu_device.CreateTexture(&depth_texture_descriptor);
+    m_wgpu_render_target_depth_stencil_texture = m_wgpu_device.CreateTexture(&depth_texture_view_descriptor);
     
     wgpu::TextureViewDescriptor depth_view_descriptor = {
       .label = "Broccoli.Renderer.Draw.RenderTarget.DepthStencilTextureView",
@@ -181,7 +220,7 @@ namespace broccoli {
       .arrayLayerCount = 1,
       .aspect = wgpu::TextureAspect::DepthOnly,
     };
-    m_wgpu_depth_stencil_texture_view = m_wgpu_depth_stencil_texture.CreateView(&depth_view_descriptor);
+    m_wgpu_render_target_depth_stencil_texture_view = m_wgpu_render_target_depth_stencil_texture.CreateView(&depth_view_descriptor);
   }
   void RenderManager::initBindGroup0Layout() {
     std::array<wgpu::BindGroupLayoutEntry, 3> bind_group_layout_entries = {
@@ -211,7 +250,6 @@ namespace broccoli {
       },
     };
     wgpu::BindGroupLayoutDescriptor bind_group_layout_descriptor = {
-      .nextInChain = nullptr,
       .label = "Broccoli.Renderer.Draw3D.BindGroup0Layout",
       .entryCount = bind_group_layout_entries.size(),
       .entries = bind_group_layout_entries.data()
@@ -220,7 +258,6 @@ namespace broccoli {
   }
   void RenderManager::initRenderPipelineLayout() {
     wgpu::PipelineLayoutDescriptor render_pipeline_layout_descriptor = {
-      .nextInChain = nullptr,
       .label = "Broccoli.Renderer.Draw3D.RenderPipelineLayout",
       .bindGroupLayoutCount = 1,
       .bindGroupLayouts = &m_wgpu_bind_group_0_layout,
@@ -231,18 +268,17 @@ namespace broccoli {
     wgpu::BlendState blend_state = {
       .color = {
         .operation = wgpu::BlendOperation::Add,
-        .srcFactor = wgpu::BlendFactor::SrcAlpha,
-        .dstFactor = wgpu::BlendFactor::OneMinusSrcAlpha,
+        .srcFactor = wgpu::BlendFactor::One,
+        .dstFactor = wgpu::BlendFactor::Zero,
       },
       .alpha = {
         .operation = wgpu::BlendOperation::Add,
-        .srcFactor = wgpu::BlendFactor::Zero,
-        .dstFactor = wgpu::BlendFactor::One,
+        .srcFactor = wgpu::BlendFactor::One,
+        .dstFactor = wgpu::BlendFactor::Zero,
       },
     };
     wgpu::ColorTargetState color_target = {
-      .nextInChain = nullptr,
-      .format = SWAPCHAIN_TEXTURE_FORMAT,
+      .format = R3D_SWAPCHAIN_TEXTURE_FORMAT,
       .blend = &blend_state,
       .writeMask = wgpu::ColorWriteMask::All,
     };
@@ -259,42 +295,32 @@ namespace broccoli {
       .attributes = vertex_buffer_attrib_layout.data(),
     };
     wgpu::VertexState vertex_state = {
-      .nextInChain = nullptr,
       .module = m_wgpu_shader_module,
       .entryPoint = R3D_SHADER_VS_ENTRY_POINT_NAME,
       .bufferCount = 1,
       .buffers = &vertex_buffer_layout,
     };
     wgpu::PrimitiveState primitive_state = {
-      .nextInChain = nullptr,
       .topology = wgpu::PrimitiveTopology::TriangleList,
       .stripIndexFormat = wgpu::IndexFormat::Undefined,
       .frontFace = wgpu::FrontFace::CCW,
       .cullMode = wgpu::CullMode::Back,
     };
     wgpu::DepthStencilState depth_stencil_state = {
-      .nextInChain = nullptr,
       .format = R3D_DEPTH_TEXTURE_FORMAT,
       .depthWriteEnabled = true,
-      .depthCompare = wgpu::CompareFunction::Less,
-      .stencilReadMask = 0,
-      .stencilWriteMask = 0,
+      .depthCompare = wgpu::CompareFunction::LessEqual,
     };
     wgpu::MultisampleState multisample_state = {
-      .nextInChain = nullptr,
-      .count = 1,
-      .mask = 0xFFFFFFFF,
-      .alphaToCoverageEnabled = false,
+      .count = R3D_MSAA_SAMPLE_COUNT,
     };
     wgpu::FragmentState fragment_state = {
-      .nextInChain = nullptr,
       .module = m_wgpu_shader_module,
       .entryPoint = R3D_SHADER_FS_ENTRY_POINT_NAME,
       .targetCount = 1,
       .targets = &color_target
     };
     wgpu::RenderPipelineDescriptor render_pipeline_descriptor = {
-      .nextInChain = nullptr,
       .label = "Broccoli.Renderer.Draw3D.RenderPipeline",
       .layout = m_wgpu_render_pipeline_layout,
       .vertex = vertex_state,
@@ -359,8 +385,11 @@ namespace broccoli {
   wgpu::BindGroup const &RenderManager::wgpuBindGroup0() const {
     return m_wgpu_bind_group_0;
   }
-  wgpu::TextureView const &RenderManager::wgpuDepthStencilTextureView() const {
-    return m_wgpu_depth_stencil_texture_view;
+  wgpu::TextureView const &RenderManager::wgpuRenderTargetColorTextureView() const {
+    return m_wgpu_render_target_color_texture_view;
+  }
+  wgpu::TextureView const &RenderManager::wgpuRenderTargetDepthStencilTextureView() const {
+    return m_wgpu_render_target_depth_stencil_texture_view;
   }
 }
 namespace broccoli {
@@ -384,13 +413,14 @@ namespace broccoli {
     wgpu::CommandEncoderDescriptor command_encoder_descriptor = {.label = "Broccoli.Renderer.Clear.CommandEncoder"};
     wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
     wgpu::RenderPassColorAttachment rp_color_attachment = {
-      .view = m_target.texture_view,
+      .view = m_manager.wgpuRenderTargetColorTextureView(),
+      .resolveTarget = m_target.texture_view,
       .loadOp = wgpu::LoadOp::Clear,
       .storeOp = wgpu::StoreOp::Store,
       .clearValue = wgpu::Color{.r=cc.x, .g=cc.y, .b=cc.z, .a=1.0},
     };
     wgpu::RenderPassDepthStencilAttachment rp_depth_attachment = {
-      .view = m_manager.wgpuDepthStencilTextureView(),
+      .view = m_manager.wgpuRenderTargetDepthStencilTextureView(),
       .depthLoadOp = wgpu::LoadOp::Clear,
       .depthStoreOp = wgpu::StoreOp::Store,
       .depthClearValue = 1.0f,
@@ -432,22 +462,23 @@ namespace broccoli {
   Renderer::~Renderer() {
     sendCameraData(m_camera, m_target);
     sendLightData(std::move(m_directional_light_vec), std::move(m_point_light_vec));
-    sendDrawMeshInstanceListVec(m_mesh_instance_list_vec);
+    sendDrawMeshInstanceListVec(std::move(m_mesh_instance_list_vec));
   }
 }
 namespace broccoli {
-  void Renderer::draw(Mesh mesh) {
+  void Renderer::draw(const Mesh &mesh) {
     draw(mesh, glm::mat4x4{1.0f});
   }
-  void Renderer::draw(Mesh mesh, glm::mat4x4 transform) {
-    draw(mesh, std::span<glm::mat4x4>{&transform, 1});
+  void Renderer::draw(const Mesh &mesh, glm::mat4x4 transform) {
+    draw(std::move(mesh), std::span<glm::mat4x4>{&transform, 1});
   }
-  void Renderer::draw(Mesh mesh, std::span<glm::mat4x4> transforms_span) {
+  void Renderer::draw(const Mesh &mesh, std::span<glm::mat4x4> transforms_span) {
     std::vector<glm::mat4x4> transforms(transforms_span.begin(), transforms_span.end());
-    draw(mesh, std::move(transforms));
+    draw(std::move(mesh), std::move(transforms));
   }
-  void Renderer::draw(Mesh mesh, std::vector<glm::mat4x4> transforms) {
-    m_mesh_instance_list_vec.emplace_back(mesh, std::move(transforms));
+  void Renderer::draw(const Mesh &mesh, std::vector<glm::mat4x4> transforms) {
+    MeshInstanceList mil = {mesh, std::move(transforms)};
+    m_mesh_instance_list_vec.emplace_back(std::move(mil));
   }
   void Renderer::addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color) {
     direction = glm::normalize(direction);
@@ -497,11 +528,11 @@ namespace broccoli {
     queue.WriteBuffer(m_manager.wgpuLightUniformBuffer(), 0, &buf, sizeof(LightUniform));
   }
   void Renderer::sendDrawMeshInstanceListVec(std::vector<MeshInstanceList> mesh_instance_list_vec) {
-    for (auto const &mesh_instance_list: m_mesh_instance_list_vec) {
+    for (auto const &mesh_instance_list: mesh_instance_list_vec) {
       sendDrawMeshInstanceList(mesh_instance_list);
     }
   }
-  void Renderer::sendDrawMeshInstanceList(MeshInstanceList const &mesh_instance_list) {
+  void Renderer::sendDrawMeshInstanceList(const MeshInstanceList &mesh_instance_list) {
     auto const &mesh = mesh_instance_list.mesh;
     auto const &transform_list = mesh_instance_list.instance_list;
     auto queue = m_manager.wgpuDevice().GetQueue();
@@ -510,12 +541,13 @@ namespace broccoli {
     wgpu::CommandEncoderDescriptor command_encoder_descriptor = {.label = "Broccoli.Renderer.Draw.CommandEncoder"};
     wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
     wgpu::RenderPassColorAttachment rp_color_attachment = {
-      .view = m_target.texture_view,
+      .view = m_manager.wgpuRenderTargetColorTextureView(),
+      .resolveTarget = m_target.texture_view,
       .loadOp = wgpu::LoadOp::Load,
       .storeOp = wgpu::StoreOp::Store,
     };
     wgpu::RenderPassDepthStencilAttachment rp_depth_attachment = {
-      .view = m_manager.wgpuDepthStencilTextureView(),
+      .view = m_manager.wgpuRenderTargetDepthStencilTextureView(),
       .depthLoadOp = wgpu::LoadOp::Load,
       .depthStoreOp = wgpu::StoreOp::Store,
     };
