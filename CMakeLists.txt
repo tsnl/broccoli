@@ -36,6 +36,7 @@ add_strict_library(
   broccoli-sample STATIC
   "src/broccoli/sample/sample1.cc"
   "src/broccoli/sample/sample2.cc"
+  "src/broccoli/sample/sample3.cc"
 )
 target_link_libraries(broccoli-sample PUBLIC broccoli-engine)
 
