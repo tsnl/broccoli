@@ -5,6 +5,12 @@ include(FetchContent)
 include("cmake/Strict.cmake")
 
 #
+# Tooling:
+#
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+#
 # Dependencies:
 #
 
