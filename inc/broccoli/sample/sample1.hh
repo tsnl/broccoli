@@ -5,11 +5,13 @@
 namespace broccoli {
   class SampleActivity1: public broccoli::Activity {
   private:
-    Mesh m_cube_mesh;
+    Geometry m_cube_geometry;
+    Material m_cube_material;
   public:
     SampleActivity1(broccoli::Engine &engine);
   private:
-    static Mesh buildCubeMesh(broccoli::Engine &engine);
+    static Geometry buildCubeGeometry(broccoli::Engine &engine);
+    static Material buildCubeMaterial(broccoli::Engine &engine);
   public:
     void draw(broccoli::RenderFrame &frame) override;
   };

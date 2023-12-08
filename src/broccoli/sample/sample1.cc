@@ -6,17 +6,18 @@
 namespace broccoli {
   SampleActivity1::SampleActivity1(broccoli::Engine &engine)
   : broccoli::Activity(engine),
-    m_cube_mesh(buildCubeMesh(engine))
+    m_cube_geometry(buildCubeGeometry(engine)),
+    m_cube_material(buildCubeMaterial(engine))
   {}
-  Mesh SampleActivity1::buildCubeMesh(broccoli::Engine &engine) {
-    return engine.createMeshFactory().createCuboid(
-      glm::dvec3{1.0},
-      MeshFactory::Facet{.color=glm::dvec3{0.0, 1.0, 1.0}, .shininess=16.0},
-      MeshFactory::Facet{.color=glm::dvec3{1.0, 0.0, 0.0}, .shininess=16.0},
-      MeshFactory::Facet{.color=glm::dvec3{1.0, 0.0, 1.0}, .shininess=16.0},
-      MeshFactory::Facet{.color=glm::dvec3{0.0, 1.0, 0.0}, .shininess=16.0},
-      MeshFactory::Facet{.color=glm::dvec3{1.0, 1.0, 0.0}, .shininess=16.0},
-      MeshFactory::Facet{.color=glm::dvec3{0.0, 0.0, 1.0}, .shininess=16.0}
+  Geometry SampleActivity1::buildCubeGeometry(broccoli::Engine &engine) {
+    return engine.renderManager().createGeometryFactory().createCuboid(glm::dvec3{1.0});
+  }
+  Material SampleActivity1::buildCubeMaterial(broccoli::Engine &engine) {
+    return engine.renderManager().createBlinnPhongMaterial(
+      "Sample1.Cube",
+      {glm::dvec3{1.0, 0.0, 0.0}},
+      {glm::dvec3{0.0, 0.0, 1.0}},
+      1.0
     );
   }
   void SampleActivity1::draw(broccoli::RenderFrame &frame) {
@@ -28,7 +29,7 @@ namespace broccoli {
     auto rotation = glm::rotate(angular_position, glm::vec3{0.0f, 1.0f, 0.0f});
     auto xform = translation * rotation;
     std::array<glm::mat4x4, 2> instance_transforms = {xform};
-    renderer.draw(m_cube_mesh, std::span{instance_transforms.begin(), instance_transforms.size()});
+    renderer.draw(m_cube_material, m_cube_geometry, std::span{instance_transforms.begin(), instance_transforms.size()});
     renderer.addDirectionalLight(glm::vec3{+1.0f, -1.0f, -1.0f}, 1.0f, glm::vec3{1.0f, 1.0f, 1.0f});
     // renderer.addPointLight(glm::vec3{5.0f, 0.0f, -2.5f}, 1.0f, glm::vec3{0.0f, 1.0f, 0.0f});
   }

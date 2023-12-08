@@ -156,11 +156,8 @@ namespace broccoli {
   }
 }
 namespace broccoli {
-  MeshBuilder Engine::createMeshBuilder() {
-    return m_renderer->createMeshBuilder();
-  }
-  MeshFactory Engine::createMeshFactory() {
-    return m_renderer->createMeshFactory();
+  RenderManager &Engine::renderManager() {
+    return *m_renderer;
   }
 }
 namespace broccoli {

@@ -88,8 +88,7 @@ namespace broccoli {
     void swapActivity(Activity::BuildCb activity);
     void popActivity();
   public:
-    MeshBuilder createMeshBuilder();
-    MeshFactory createMeshFactory();
+    RenderManager &renderManager();
   public:
     double currUpdateTimestampSec() const;
     double currUpdateDtSec() const;

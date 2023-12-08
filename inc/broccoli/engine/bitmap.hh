@@ -32,6 +32,9 @@ namespace broccoli {
   public:
     void *data();
     void const *data() const;
+    size_t dataSize() const;
+    size_t pitch() const;
+    size_t rows() const;
   public:
     Bitmap clone() const;
   private:

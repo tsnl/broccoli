@@ -5,7 +5,11 @@ namespace broccoli {
   : m_pixels(pixels),
     m_size(size),
     m_owns_pixels(owns_pixels)
-  {}
+  {
+    CHECK(m_size.x > 0, "Invalid 'x' dimensions for bitmap.");
+    CHECK(m_size.y > 0, "Invalid 'y' dimensions for bitmap.");
+    CHECK(m_size.z > 0, "Invalid 'z' dimensions for bitmap.");
+  }
   Bitmap::Bitmap(glm::i64vec3 size)
   : Bitmap(size, calloc(size.x * size.y, size.z), true)
   {}
@@ -27,6 +31,17 @@ namespace broccoli {
   }
   void const *Bitmap::data() const {
     return m_pixels;
+  }
+  size_t Bitmap::dataSize() const {
+    return pitch() * rows();
+  }
+  size_t Bitmap::pitch() const {
+    return 
+      static_cast<size_t>(m_size.x) * 
+      static_cast<size_t>(m_size.z);
+  }
+  size_t Bitmap::rows() const {
+    return static_cast<size_t>(m_size.y);
   }
 }
 namespace broccoli {

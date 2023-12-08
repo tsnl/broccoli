@@ -10,6 +10,13 @@ include("cmake/Strict.cmake")
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+if (CMAKE_BUILD_TYPE MATCHES "[Dd]ebug")
+  set(SANITIZE ON)
+else()
+  set(SANITIZE OFF)
+endif()
+set(BROCCOLI_SANITIZE "$SANITIZE" CACHE BOOL "Enable sanitizers")
+
 #
 # Dependencies:
 #
