@@ -29,7 +29,7 @@ namespace broccoli {
     auto rotation = glm::rotate(angular_position, glm::vec3{0.0f, 1.0f, 0.0f});
     auto xform = translation * rotation;
     std::array<glm::mat4x4, 2> instance_transforms = {xform};
-    renderer.draw(m_cube_material, m_cube_geometry, std::span{instance_transforms.begin(), instance_transforms.size()});
+    renderer.addMesh(m_cube_material, m_cube_geometry, std::span{instance_transforms.begin(), instance_transforms.size()});
     renderer.addDirectionalLight(glm::vec3{+1.0f, -1.0f, -1.0f}, 1.0f, glm::vec3{1.0f, 1.0f, 1.0f});
     // renderer.addPointLight(glm::vec3{5.0f, 0.0f, -2.5f}, 1.0f, glm::vec3{0.0f, 1.0f, 0.0f});
   }

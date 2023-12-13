@@ -9,7 +9,7 @@ namespace broccoli {
   {}
   void SampleActivity3::draw(broccoli::RenderFrame &frame) {
     frame.clear(glm::dvec3{0.34, 0.55, 0.90});
-    auto renderer = frame.useCamera(RenderCamera::fromLookAt(
+    auto renderer = frame.useCamera(RenderCamera::createFromLookAt(
       glm::vec3{30.0f, 30.0f, 45.0f},
       glm::vec3{00.0f, 04.0f, 00.0f},
       glm::vec3{00.0f, 01.0f, 00.0f},

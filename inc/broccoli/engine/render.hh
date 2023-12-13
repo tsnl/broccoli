@@ -55,11 +55,12 @@ namespace broccoli {
   class RenderCamera {
   public:
     glm::mat4x4 m_view_matrix;
+    glm::mat4x4 m_transform_matrix;
     glm::vec3 m_position;
     float m_fovy_deg;
     float m_exposure_bias;
   private:
-    RenderCamera(glm::mat4x4 view_matrix, glm::vec3 position, float fovy_deg, float exposure_bias);
+    RenderCamera(glm::mat4x4 view_matrix, glm::mat4x4 transform_matrix, glm::vec3 position, float fovy_deg, float exposure_bias);
     RenderCamera() = delete;
   public:
     RenderCamera(const RenderCamera &other) = default;
@@ -69,12 +70,12 @@ namespace broccoli {
       float fovy_deg = 90.0f,
       float exposure_bias = 0.0f
     );
-    static RenderCamera fromTransform(
+    static RenderCamera createFromTransform(
       glm::mat4x4 transform,
       float fovy_deg,
       float exposure_bias = 0.0f
     );
-    static RenderCamera fromLookAt(
+    static RenderCamera createFromLookAt(
       glm::vec3 eye,
       glm::vec3 target,
       glm::vec3 up,
@@ -230,7 +231,9 @@ namespace broccoli {
     RenderCamera m_camera;
     std::vector<std::vector<MeshInstanceList>> m_mesh_instance_lists;
     std::vector<DirectionalLight> m_directional_light_vec;
+    std::vector<size_t> m_shadow_casting_directional_light_idx_vec;
     std::vector<PointLight> m_point_light_vec;
+    bool m_cast_shadow;
   private:
     static wgpu::CommandEncoderDescriptor s_draw_command_encoder_descriptor;
   private:
@@ -238,17 +241,18 @@ namespace broccoli {
   public:
     ~Renderer();
   public:
-    void draw(Material material_id, const Geometry &mesh);
-    void draw(Material material_id, const Geometry &mesh, glm::mat4x4 instance_transform);
-    void draw(Material material_id, const Geometry &mesh, std::span<glm::mat4x4> instance_transforms);
-    void draw(Material material_id, const Geometry &mesh, std::vector<glm::mat4x4> instance_transforms);
-    void addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color);
+    void addMesh(Material material_id, const Geometry &geometry);
+    void addMesh(Material material_id, const Geometry &geometry, glm::mat4x4 instance_transform);
+    void addMesh(Material material_id, const Geometry &geometry, std::span<glm::mat4x4> instance_transforms);
+    void addMesh(Material material_id, const Geometry &geometry, std::vector<glm::mat4x4> instance_transforms);
+    void addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color, bool cast_shadow);
     void addPointLight(glm::vec3 position, float intensity, glm::vec3 color);
   private:
     void sendCameraData(RenderCamera camera, RenderTarget target);
-    void sendLightData(std::vector<DirectionalLight> direction_light_vec, std::vector<PointLight> point_light_vec);
-    void sendDrawMeshInstanceListVec(std::vector<std::vector<MeshInstanceList>> mesh_instance_list_vec);
-    void sendDrawMeshInstanceList(Material material, const MeshInstanceList &mesh_instance_list);
+    void sendLightData(RenderCamera camera, std::vector<DirectionalLight> direction_light_vec, std::vector<PointLight> point_light_vec, std::vector<size_t> dir_shadow_cast_filter);
+    void drawDirLightShadowMaps(RenderCamera camera, std::vector<DirectionalLight> const &lights, std::vector<size_t> filter);
+    void drawMeshInstanceListVec(std::vector<std::vector<MeshInstanceList>> mesh_instance_list_vec);
+    void drawMeshInstanceList(Material material, const MeshInstanceList &mesh_instance_list);
   };
 }
 

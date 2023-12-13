@@ -108,8 +108,9 @@ namespace broccoli {
 //
 
 namespace broccoli {
-  RenderCamera::RenderCamera(glm::mat4x4 view_matrix, glm::vec3 position, float fovy_deg, float exposure_bias)
+  RenderCamera::RenderCamera(glm::mat4x4 view_matrix, glm::mat4x4 transform_matrix, glm::vec3 position, float fovy_deg, float exposure_bias)
   : m_view_matrix(view_matrix),
+    m_transform_matrix(transform_matrix),
     m_position(position),
     m_fovy_deg(fovy_deg),
     m_exposure_bias(exposure_bias)
@@ -117,13 +118,14 @@ namespace broccoli {
 }
 namespace broccoli {
   RenderCamera RenderCamera::createDefault(float fovy_deg, float exposure_bias) {
-    return {glm::mat4x4{1.0f}, glm::vec3{0.0f}, fovy_deg, exposure_bias};
+    return {glm::mat4x4{1.0f}, glm::mat4x4{1.0f}, glm::vec3{0.0f}, fovy_deg, exposure_bias};
   }
-  RenderCamera RenderCamera::fromTransform(glm::mat4x4 transform, float fovy_deg, float exposure_bias) {
-    return {glm::inverse(transform), transform[3], fovy_deg, exposure_bias};
+  RenderCamera RenderCamera::createFromTransform(glm::mat4x4 transform, float fovy_deg, float exposure_bias) {
+    return {glm::inverse(transform), transform, transform[3], fovy_deg, exposure_bias};
   }
-  RenderCamera RenderCamera::fromLookAt(glm::vec3 eye, glm::vec3 target, glm::vec3 up, float fovy_deg, float exposure_bias) {
-    return {glm::lookAt(eye, target, up), eye, fovy_deg, exposure_bias};
+  RenderCamera RenderCamera::createFromLookAt(glm::vec3 eye, glm::vec3 target, glm::vec3 up, float fovy_deg, float exposure_bias) {
+    glm::mat4x4 view = glm::lookAt(eye, target, up);
+    return {view, glm::inverse(view), eye, fovy_deg, exposure_bias};
   }
 }
 namespace broccoli {
@@ -822,30 +824,32 @@ namespace broccoli {
   Renderer::~Renderer() {
     sendCameraData(m_camera, m_target);
     sendLightData(std::move(m_directional_light_vec), std::move(m_point_light_vec));
-    sendDrawMeshInstanceListVec(std::move(m_mesh_instance_lists));
+    drawMeshInstanceListVec(std::move(m_mesh_instance_lists));
     m_manager.unlockMaterials();
   }
 }
 namespace broccoli {
-  void Renderer::draw(Material material_id, const Geometry &mesh) {
-    draw(material_id, mesh, glm::mat4x4{1.0f});
+  void Renderer::addMesh(Material material_id, const Geometry &geometry) {
+    addMesh(material_id, geometry, glm::mat4x4{1.0f});
   }
-  void Renderer::draw(Material material_id, const Geometry &mesh, glm::mat4x4 transform) {
-    draw(material_id, std::move(mesh), std::span<glm::mat4x4>{&transform, 1});
+  void Renderer::addMesh(Material material_id, const Geometry &geometry, glm::mat4x4 transform) {
+    addMesh(material_id, std::move(geometry), std::span<glm::mat4x4>{&transform, 1});
   }
-  void Renderer::draw(Material material_id, const Geometry &mesh, std::span<glm::mat4x4> transforms_span) {
+  void Renderer::addMesh(Material material_id, const Geometry &geometry, std::span<glm::mat4x4> transforms_span) {
     std::vector<glm::mat4x4> transforms(transforms_span.begin(), transforms_span.end());
-    draw(material_id, std::move(mesh), std::move(transforms));
+    addMesh(material_id, std::move(geometry), std::move(transforms));
   }
-  void Renderer::draw(Material material_id, const Geometry &mesh, std::vector<glm::mat4x4> transforms) {
-    MeshInstanceList mil = {mesh, std::move(transforms)};
+  void Renderer::addMesh(Material material_id, const Geometry &geometry, std::vector<glm::mat4x4> transforms) {
+    MeshInstanceList mil = {geometry, std::move(transforms)};
     m_mesh_instance_lists[material_id.value].emplace_back(std::move(mil));
   }
-  void Renderer::addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color) {
+  void Renderer::addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color, bool cast_shadow) {
     direction = glm::normalize(direction);
     color = glm::normalize(color) * intensity;
     DirectionalLight directional_list{direction, color};
+    size_t directional_light_idx = m_directional_light_vec.size();
     m_directional_light_vec.emplace_back(directional_list);
+    m_shadow_casting_directional_light_idx_vec.emplace_back(directional_light_idx);
   }
   void Renderer::addPointLight(glm::vec3 position, float intensity, glm::vec3 color) {
     color = glm::normalize(color) * intensity;
@@ -870,9 +874,16 @@ namespace broccoli {
     auto queue = m_manager.wgpuDevice().GetQueue();
     queue.WriteBuffer(m_manager.wgpuCameraUniformBuffer(), 0, &buf, sizeof(CameraUniform));
   }
-  void Renderer::sendLightData(std::vector<DirectionalLight> directional_light_vec, std::vector<PointLight> point_light_vec) {
+  void Renderer::sendLightData(
+    RenderCamera camera,
+    std::vector<DirectionalLight> directional_light_vec, 
+    std::vector<PointLight> point_light_vec,
+    std::vector<size_t> dir_shadow_cast_filter
+  ) {
     CHECK(directional_light_vec.size() < R3D_DIRECTIONAL_LIGHT_CAPACITY, "Direction light overflow");
     CHECK(point_light_vec.size() < R3D_POINT_LIGHT_CAPACITY, "Point light overflow");
+    
+    // Updating the LightUniform UBO
     LightUniform buf = {
       .directional_light_count = static_cast<uint32_t>(directional_light_vec.size()),
       .point_light_count = static_cast<uint32_t>(point_light_vec.size()),
@@ -888,16 +899,22 @@ namespace broccoli {
     }
     auto queue = m_manager.wgpuDevice().GetQueue();
     queue.WriteBuffer(m_manager.wgpuLightUniformBuffer(), 0, &buf, sizeof(LightUniform));
+
+    // Rendering shadow maps for each light source:
+    drawDirLightShadowMaps(camera, directional_light_vec, std::move(dir_shadow_cast_filter));
   }
-  void Renderer::sendDrawMeshInstanceListVec(std::vector<std::vector<MeshInstanceList>> mesh_instance_list_vec) {
+  void Renderer::drawDirLightShadowMaps(RenderCamera camera, std::vector<DirectionalLight> const &lights, std::vector<size_t> filter) {
+    
+  }
+  void Renderer::drawMeshInstanceListVec(std::vector<std::vector<MeshInstanceList>> mesh_instance_list_vec) {
     for (size_t material_idx = 0; material_idx < mesh_instance_list_vec.size(); material_idx++) {
       Material material{material_idx};
       for (auto const &mesh_instance_list: mesh_instance_list_vec[material_idx]) {
-        sendDrawMeshInstanceList(material, mesh_instance_list);
+        drawMeshInstanceList(material, mesh_instance_list);
       }
     }
   }
-  void Renderer::sendDrawMeshInstanceList(Material material, const MeshInstanceList &mesh_instance_list) {
+  void Renderer::drawMeshInstanceList(Material material, const MeshInstanceList &mesh_instance_list) {
     if (mesh_instance_list.instance_list.empty()) {
       return;
     }
