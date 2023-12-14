@@ -6,6 +6,7 @@
 #include <span>
 #include <concepts>
 #include <type_traits>
+#include <unordered_map>
 
 #define _USE_MATH_DEFINES
 #include <cstdint>
@@ -52,6 +53,14 @@ namespace broccoli {
 }
 
 //
+// String replacement:
+//
+
+namespace broccoli {
+  std::string replaceAll(const std::string &s, std::unordered_map<std::string, std::string> const &rw_map);
+}
+
+//
 // Hashing:
 //
 
@@ -62,6 +71,7 @@ namespace broccoli {
     { a.finish() } -> std::same_as<uint64_t>;
   };
 }
+
 namespace broccoli {
   template <HasherBackend Backend>
   class Hasher {

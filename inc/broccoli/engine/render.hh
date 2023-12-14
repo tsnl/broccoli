@@ -43,6 +43,20 @@ namespace broccoli {
   struct Geometry;
   struct Vertex;
 }
+namespace broccoli {
+  struct MaterialUniform;
+  struct ShadowUniform;
+}
+
+//
+// POD Uniform Buffer Objects (UBOs):
+//
+
+namespace broccoli {
+  struct ShadowUniform {
+    glm::mat4x4 proj_view_matrix;
+  };
+}
 
 //
 // RenderManager, RenderFrame, Renderer
@@ -68,21 +82,22 @@ namespace broccoli {
   public:
     static RenderCamera createDefault(
       float fovy_deg = 90.0f,
-      float exposure_bias = 0.0f
+      float exposure_bias = 1.0f
     );
     static RenderCamera createFromTransform(
       glm::mat4x4 transform,
       float fovy_deg,
-      float exposure_bias = 0.0f
+      float exposure_bias = 1.0f
     );
     static RenderCamera createFromLookAt(
       glm::vec3 eye,
       glm::vec3 target,
       glm::vec3 up,
       float fovy_deg,
-      float exposure_bias = 0.0f
+      float exposure_bias = 1.0f
     );
   public:
+    glm::mat4x4 transformMatrix() const;
     glm::mat4x4 viewMatrix() const;
     glm::vec3 position() const;
     float fovyDeg() const;
@@ -95,22 +110,28 @@ namespace broccoli {
     wgpu::Texture m_texture;
     wgpu::TextureView m_view;
     wgpu::Sampler m_sampler;
-    Bitmap m_bitmap;
     std::string m_name;
     std::string m_wgpu_texture_label;
     std::string m_wgpu_view_label;
     std::string m_wgpu_sampler_label;
+    glm::i64vec3 m_dim;
+  private:
+    RenderTexture(wgpu::Device &device, std::string name, glm::i64vec3 dim, wgpu::FilterMode filter, bool is_depth);
   public:
-    RenderTexture(wgpu::Device &device, std::string name, Bitmap bitmap, wgpu::FilterMode filter);
     RenderTexture(RenderTexture &&other) = default;
     ~RenderTexture() = default;
   private:
-    void upload(wgpu::Device &device, wgpu::FilterMode filter);
+    void create(wgpu::Device &device, glm::i64vec3 dim, wgpu::FilterMode filter, bool is_depth);
+    void upload(wgpu::Device &device, Bitmap const &bitmap);
+  public:
+    static RenderTexture createForDepth(wgpu::Device &device, std::string name, glm::i64vec3 dim, wgpu::FilterMode filter);
+    static RenderTexture createForColor(wgpu::Device &device, std::string name, glm::i64vec3 dim, wgpu::FilterMode filter);
+    static RenderTexture createForColorFromBitmap(wgpu::Device &device, std::string name, Bitmap bitmap, wgpu::FilterMode filter);
   public:
     wgpu::Texture const &texture() const;
     wgpu::TextureView const &view() const;
     wgpu::Sampler const &sampler() const;
-    Bitmap const &bitmap() const;
+    glm::i64vec3 dim() const;
   };
   class RenderTextureView {
   private:
@@ -125,28 +146,84 @@ namespace broccoli {
     glm::dvec2 uv_size() const;
   };
 }
+namespace broccoli {
+  template <size_t bind_group_count, size_t bind_group_prefix_count>
+  class RenderPipeline {
+    static_assert(
+      bind_group_prefix_count <= bind_group_count,
+      "expected bind group prefix count to not exceed bind group count."
+    );
+  public:
+    static constexpr const size_t BIND_GROUP_COUNT = bind_group_count;
+    static constexpr const size_t BIND_GROUP_PREFIX_COUNT = bind_group_prefix_count;
+    static constexpr const size_t BIND_GROUP_SUFFIX_COUNT = bind_group_count - bind_group_prefix_count;
+  public:
+    RenderPipeline() = default;
+  public:
+    std::array<wgpu::BindGroupLayout, bind_group_count> bind_group_layouts = {};
+    std::array<wgpu::BindGroup, bind_group_prefix_count> bind_groups_prefix = {};
+    wgpu::PipelineLayout pipeline_layout = nullptr;
+    wgpu::RenderPipeline pipeline = nullptr;
+  public:
+    inline void setBindGroups(wgpu::RenderPassEncoder& encoder, std::span<wgpu::BindGroup, BIND_GROUP_SUFFIX_COUNT> suffix) const;
+    inline void setBindGroups(wgpu::RenderPassEncoder& encoder, std::array<wgpu::BindGroup, BIND_GROUP_SUFFIX_COUNT> suffix) const;
+  };
+  class FinalRenderPipeline: public RenderPipeline<2, 1> {
+  public:
+    inline wgpu::BindGroupLayout materialBindGroupLayout() const;
+  };
+  class ShadowRenderPipeline: public RenderPipeline<2, 1> {
+  public:
+    inline wgpu::BindGroupLayout shadowUniformBindGroupLayout() const;
+  };
+}
+namespace broccoli {
+  class RenderShadowMaps {
+  public:
+    struct ShadowMapUbo { ShadowUniform state; wgpu::Buffer buffer; wgpu::BindGroup bind_group; };
+  private:
+    wgpu::Texture m_texture = nullptr;
+    std::vector<wgpu::TextureView> m_write_views = {};
+    std::vector<wgpu::TextureView> m_read_views = {};
+    std::vector<ShadowMapUbo> m_shadow_map_ubo_vec = {};
+    int32_t m_light_count_lg2 = 0;
+    int32_t m_cascades_per_light_lg2 = 0;
+    int32_t m_size_lg2 = 0;
+  public:
+    RenderShadowMaps() = default;
+  public:
+    void init(wgpu::Device &dev, const ShadowRenderPipeline &pipeline, int32_t light_count_lg2, int32_t cascades_per_light_lg2, int32_t size_lg2, std::string name);
+  public:
+    const wgpu::Texture &texture() const;
+    const wgpu::TextureView &getWriteView(int32_t light_idx, int32_t cascade_idx) const;
+    const wgpu::TextureView &getReadView(int32_t light_idx, int32_t cascade_idx) const;
+    const ShadowMapUbo &getShadowMapUbo(int32_t light_idx, int32_t cascade_idx) const;
+  };
+}
 
 namespace broccoli {
   class RenderManager {
   private:
     wgpu::Device &m_wgpu_device;
-    wgpu::ShaderModule m_wgpu_shader_module;
-    wgpu::Buffer m_wgpu_light_uniform_buffer;
-    wgpu::Buffer m_wgpu_camera_uniform_buffer;
-    wgpu::Buffer m_wgpu_transform_uniform_buffer;
-    wgpu::BindGroupLayout m_wgpu_bind_group_0_layout;
-    wgpu::BindGroupLayout m_wgpu_bind_group_1_layout;
-    wgpu::PipelineLayout m_wgpu_render_pipeline_layout;
-    wgpu::RenderPipeline m_wgpu_render_pipeline;
-    wgpu::BindGroup m_wgpu_bind_group_0;
-    wgpu::Texture m_wgpu_render_target_color_texture;
-    wgpu::TextureView m_wgpu_render_target_color_texture_view;
-    wgpu::Texture m_wgpu_render_target_depth_stencil_texture;
-    wgpu::TextureView m_wgpu_render_target_depth_stencil_texture_view;
+    wgpu::ShaderModule m_wgpu_pbr_shader_module = nullptr;
+    wgpu::ShaderModule m_wgpu_blinn_phong_shader_module = nullptr;
+    wgpu::ShaderModule m_wgpu_shadow_shader_module = nullptr;
+    wgpu::Buffer m_wgpu_light_uniform_buffer = nullptr;
+    wgpu::Buffer m_wgpu_camera_uniform_buffer = nullptr;
+    wgpu::Buffer m_wgpu_transform_uniform_buffer = nullptr;
+    FinalRenderPipeline m_wgpu_pbr_final_render_pipeline;
+    FinalRenderPipeline m_wgpu_blinn_phong_final_render_pipeline;
+    ShadowRenderPipeline m_shadow_render_pipeline;
+    wgpu::Texture m_wgpu_render_target_color_texture = nullptr;
+    wgpu::TextureView m_wgpu_render_target_color_texture_view = nullptr;
+    wgpu::Texture m_wgpu_render_target_depth_stencil_texture = nullptr;
+    wgpu::TextureView m_wgpu_render_target_depth_stencil_texture_view = nullptr;
+    RenderShadowMaps m_dir_light_shadow_maps;
+    RenderShadowMaps m_pt_light_shadow_maps;
     RenderTexture m_rgb_palette;
     RenderTexture m_monochrome_palette;
     std::vector<MaterialTableEntry> m_materials;
-    bool m_materials_locked;
+    bool m_materials_locked = false;
   public:
     RenderManager(wgpu::Device &device, glm::ivec2 framebuffer_size);
   public:
@@ -156,17 +233,20 @@ namespace broccoli {
   private:
     static Bitmap initMonochromePalette();
     static Bitmap initRgbPalette();
-    void initShaderModule();
-    void initUniforms();
-    void initBindGroup0Layout();
-    void initBindGroup1Layout();
-    void initRenderPipelineLayout();
-    void initRenderPipeline();
-    void initBindGroup0();
+    void initFinalShaderModules();
+    void initShadowShaderModule();
+    wgpu::ShaderModule initShaderModuleVariant(const char *filepath, const std::string &text, std::unordered_map<std::string, std::string> rw_map);
+    wgpu::ShaderModule initShaderModuleVariant(const char *filepath, const std::string &text);
+    void initUniformBuffers();
+    void initFinalPbrRenderPipeline();
+    void initFinalBlinnPhongRenderPipeline();
+    void initShadowRenderPipeline();
+    void initShadowMaps();
     void initMaterialTable();
     void reinitColorTexture(glm::ivec2 framebuffer_size);
     void reinitDepthStencilTexture(glm::ivec2 framebuffer_size);
   private:
+    FinalRenderPipeline helpInitFinalRenderPipeline(uint32_t lighting_model_id);
     Material emplaceMaterial(MaterialTableEntry material);
   public:
     GeometryBuilder createGeometryBuilder();
@@ -187,22 +267,25 @@ namespace broccoli {
       glm::dvec3 fresnel0
     );
   public:
-    void lockMaterials();
-    void unlockMaterials();
-    const wgpu::BindGroup &getMaterialBindGroup(Material material) const;
+    void lockMaterialsTable();
+    void unlockMaterialsTable();
   public:
-    wgpu::Device const &wgpuDevice() const;
-    wgpu::RenderPipeline const &wgpuRenderPipeline() const;
-    wgpu::Buffer const &wgpuLightUniformBuffer() const;
-    wgpu::Buffer const &wgpuCameraUniformBuffer() const;
-    wgpu::Buffer const &wgpuTransformUniformBuffer() const;
-    wgpu::BindGroup const &wgpuBindGroup0() const;
-    wgpu::BindGroupLayout const &wgpuBindGroup1Layout() const;
-    wgpu::TextureView const &wgpuRenderTargetColorTextureView() const;
-    wgpu::TextureView const &wgpuRenderTargetDepthStencilTextureView() const;
-    RenderTexture const &rgbPalette() const;
-    RenderTexture const &monochromePalette() const;
-    std::vector<MaterialTableEntry> const &materials() const;
+    const MaterialTableEntry &getMaterialInfo(Material material) const;
+  public:
+    const wgpu::Device &wgpuDevice() const;
+    const wgpu::Buffer &wgpuLightUniformBuffer() const;
+    const wgpu::Buffer &wgpuCameraUniformBuffer() const;
+    const wgpu::Buffer &wgpuTransformUniformBuffer() const;
+    wgpu::ShaderModule wgpuFinalShaderModule(uint32_t lighting_model_id) const;
+    const FinalRenderPipeline &getFinalRenderPipeline(uint32_t lighting_model_id) const;
+    const ShadowRenderPipeline &getShadowRenderPipeline() const;
+    const wgpu::TextureView &wgpuRenderTargetColorTextureView() const;
+    const wgpu::TextureView &wgpuRenderTargetDepthStencilTextureView() const;
+    const RenderShadowMaps &dirLightShadowMaps() const;
+    const RenderShadowMaps &pointLightShadowMaps() const;
+    const RenderTexture &rgbPalette() const;
+    const RenderTexture &monochromePalette() const;
+    const std::vector<MaterialTableEntry> &materials() const;
   public:
     RenderFrame frame(RenderTarget target);
   };
@@ -231,9 +314,7 @@ namespace broccoli {
     RenderCamera m_camera;
     std::vector<std::vector<MeshInstanceList>> m_mesh_instance_lists;
     std::vector<DirectionalLight> m_directional_light_vec;
-    std::vector<size_t> m_shadow_casting_directional_light_idx_vec;
     std::vector<PointLight> m_point_light_vec;
-    bool m_cast_shadow;
   private:
     static wgpu::CommandEncoderDescriptor s_draw_command_encoder_descriptor;
   private:
@@ -245,14 +326,34 @@ namespace broccoli {
     void addMesh(Material material_id, const Geometry &geometry, glm::mat4x4 instance_transform);
     void addMesh(Material material_id, const Geometry &geometry, std::span<glm::mat4x4> instance_transforms);
     void addMesh(Material material_id, const Geometry &geometry, std::vector<glm::mat4x4> instance_transforms);
-    void addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color, bool cast_shadow);
+    void addDirectionalLight(glm::vec3 direction, float intensity, glm::vec3 color);
     void addPointLight(glm::vec3 position, float intensity, glm::vec3 color);
   private:
     void sendCameraData(RenderCamera camera, RenderTarget target);
-    void sendLightData(RenderCamera camera, std::vector<DirectionalLight> direction_light_vec, std::vector<PointLight> point_light_vec, std::vector<size_t> dir_shadow_cast_filter);
-    void drawDirLightShadowMaps(RenderCamera camera, std::vector<DirectionalLight> const &lights, std::vector<size_t> filter);
+    void sendLightData(std::vector<DirectionalLight> const &direction_light_vec, std::vector<PointLight> const &point_light_vec);
+    void drawShadowMaps(RenderCamera camera, RenderTarget target, std::vector<DirectionalLight> const &light_vec, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_lists);
+    void drawShadowMap(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_lists);
+    void drawShadowMapMeshInstanceListVec(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec);
+    void drawShadowMapMeshInstanceList(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const MeshInstanceList &mesh_instance_list);
     void drawMeshInstanceListVec(std::vector<std::vector<MeshInstanceList>> mesh_instance_list_vec);
     void drawMeshInstanceList(Material material, const MeshInstanceList &mesh_instance_list);
+
+  private:
+    /// computeDirLightCascadeProjectionMatrix computes the orthographic projection matrix for drawing the cascaded 
+    /// shadow map of this directional light at a specified cascade.
+    static glm::mat4x4 computeDirLightCascadeProjectionMatrix(RenderCamera camera, RenderTarget target, glm::dmat3x3 inv_light_transform, size_t cascade_index);
+
+    /// computeFrustumSection returns a matrix where each column is a corner of a conic section of the view frustum.
+    /// The order of each point in the column mimics traditional 2D coordinate systems, where 0 is top-right and we go
+    /// through each quadrant counter-clockwise when viewed from the camera's perspective.
+    static glm::dmat4x3 computeFrustumSection(RenderCamera camera, RenderTarget target, double distance);
+
+    /// computeDirLightTransform computes the linear transform of a directional light.
+    static glm::dmat3x3 computeDirLightTransform(glm::dvec3 forward);
+
+    /// projectFrustumSection applies a linear transform to each point in a conic section, then flattens along the Z
+    /// axis.
+    static glm::dmat4x2 projectFrustumSection(glm::dmat4x3 world_section, glm::dmat3x3 transform);
   };
 }
 
@@ -264,11 +365,6 @@ namespace broccoli {
   struct Vertex { glm::ivec3 offset; uint32_t normal; uint32_t tangent; glm::tvec2<uint16_t> uv; };
   inline bool operator== (Vertex v1, Vertex v2);
   static_assert(sizeof(Vertex) == 24, "expected sizeof(Vertex) == 24B");
-}
-namespace broccoli {
-  inline bool operator== (Vertex v1, Vertex v2) {
-    return v1.offset == v2.offset && v1.normal == v2.normal && v1.tangent == v2.tangent && v1.uv == v2.uv;
-  }
 }
 namespace std {
   template <>
@@ -350,9 +446,6 @@ namespace broccoli {
 //
 
 namespace broccoli {
-  struct MaterialUniform;
-}
-namespace broccoli {
   enum class MaterialLightingModel: uint32_t {
     BlinnPhong = 1,
     PhysicallyBased = 2,
@@ -372,6 +465,8 @@ namespace broccoli {
     std::string m_name;
     std::string m_wgpu_material_buffer_label;
     std::string m_wgpu_material_bind_group_label;
+    MaterialLightingModel m_lighting_model;
+    bool m_is_shadow_casting;
   public:
     MaterialTableEntry(
       RenderManager &render_manager,
@@ -382,7 +477,8 @@ namespace broccoli {
       std::variant<double, RenderTexture> roughness_map,
       glm::dvec3 pbr_fresnel0,
       double blinn_phong_shininess,
-      MaterialLightingModel lighting_model
+      MaterialLightingModel lighting_model,
+      bool is_shadow_casting = true
     );
     MaterialTableEntry(MaterialTableEntry const &other) = delete;
     MaterialTableEntry(MaterialTableEntry &&other) = default;
@@ -399,7 +495,9 @@ namespace broccoli {
       MaterialLightingModel lighting_model
     );
   public:
+    uint32_t lightingModelID() const;
     const wgpu::BindGroup &wgpuMaterialBindGroup() const;
+    bool isShadowCasting() const;
   private:
     RenderTextureView getColorOrTexture(RenderManager &rm, std::variant<glm::dvec3, RenderTexture> const &map);
     RenderTextureView getColorOrTexture(RenderManager &rm, std::variant<double, RenderTexture> const &map);
@@ -441,4 +539,40 @@ namespace broccoli {
     glm::vec3 position;
     glm::vec3 color;
   };
+}
+
+//
+// Inline method definitions:
+//
+
+namespace broccoli {
+  template <size_t bg_count, size_t prefix_count>
+  inline void RenderPipeline<bg_count, prefix_count>::setBindGroups(wgpu::RenderPassEncoder& encoder, std::span<wgpu::BindGroup, BIND_GROUP_SUFFIX_COUNT> suffix) const {
+    for (size_t i = 0; i < BIND_GROUP_PREFIX_COUNT; i++) {
+      encoder.SetBindGroup(i, this->bind_groups_prefix[i]);
+    }
+    for (size_t i = 0; i < BIND_GROUP_SUFFIX_COUNT; i++) {
+      encoder.SetBindGroup(i + BIND_GROUP_PREFIX_COUNT, suffix[i]);
+    }
+  }
+  template <size_t bg_count, size_t prefix_count>
+  inline void RenderPipeline<bg_count, prefix_count>::setBindGroups(wgpu::RenderPassEncoder& encoder, std::array<wgpu::BindGroup, BIND_GROUP_SUFFIX_COUNT> suffix) const {
+    setBindGroups(encoder, std::span<wgpu::BindGroup, BIND_GROUP_SUFFIX_COUNT>{suffix.data(), suffix.size()});
+  }
+}
+namespace broccoli {
+  inline wgpu::BindGroupLayout FinalRenderPipeline::materialBindGroupLayout() const {
+    return this->bind_group_layouts[1];
+  }
+}
+namespace broccoli {
+  inline wgpu::BindGroupLayout ShadowRenderPipeline::shadowUniformBindGroupLayout() const {
+    return this->bind_group_layouts[1];
+  }
+}
+
+namespace broccoli {
+  inline bool operator== (Vertex v1, Vertex v2) {
+    return v1.offset == v2.offset && v1.normal == v2.normal && v1.tangent == v2.tangent && v1.uv == v2.uv;
+  }
 }

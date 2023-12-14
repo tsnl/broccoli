@@ -1,23 +1,23 @@
 #include "broccoli/engine/bitmap.hh"
 
 namespace broccoli {
-  Bitmap::Bitmap(glm::i64vec3 size, void *pixels, bool owns_pixels)
+  Bitmap::Bitmap(glm::i32vec3 size, void *pixels, bool owns_pixels)
   : m_pixels(pixels),
-    m_size(size),
+    m_dim(size),
     m_owns_pixels(owns_pixels)
   {
-    CHECK(m_size.x > 0, "Invalid 'x' dimensions for bitmap.");
-    CHECK(m_size.y > 0, "Invalid 'y' dimensions for bitmap.");
-    CHECK(m_size.z > 0, "Invalid 'z' dimensions for bitmap.");
+    CHECK(m_dim.x > 0, "Invalid 'x' dimensions for bitmap.");
+    CHECK(m_dim.y > 0, "Invalid 'y' dimensions for bitmap.");
+    CHECK(m_dim.z > 0, "Invalid 'z' dimensions for bitmap.");
   }
-  Bitmap::Bitmap(glm::i64vec3 size)
+  Bitmap::Bitmap(glm::i32vec3 size)
   : Bitmap(size, calloc(size.x * size.y, size.z), true)
   {}
   Bitmap::Bitmap()
   : Bitmap(glm::i32vec3{0}, nullptr, false)
   {}
   Bitmap::Bitmap(Bitmap &&other)
-  : Bitmap(other.m_size, other.m_pixels, other.m_owns_pixels)
+  : Bitmap(other.m_dim, other.m_pixels, other.m_owns_pixels)
   {
     other.release();
   }
@@ -37,17 +37,17 @@ namespace broccoli {
   }
   size_t Bitmap::pitch() const {
     return 
-      static_cast<size_t>(m_size.x) * 
-      static_cast<size_t>(m_size.z);
+      static_cast<size_t>(m_dim.x) * 
+      static_cast<size_t>(m_dim.z);
   }
   size_t Bitmap::rows() const {
-    return static_cast<size_t>(m_size.y);
+    return static_cast<size_t>(m_dim.y);
   }
 }
 namespace broccoli {
   Bitmap Bitmap::clone() const {
-    Bitmap copy{m_size};
-    memcpy(copy.data(), this->data(), m_size.x * m_size.y * m_size.z);
+    Bitmap copy{m_dim};
+    memcpy(copy.data(), this->data(), m_dim.x * m_dim.y * m_dim.z);
     return copy;
   }
 }
@@ -60,22 +60,22 @@ namespace broccoli {
   }
   void Bitmap::release() {
     m_pixels = nullptr;
-    m_size = glm::i64vec3{0};
+    m_dim = glm::i32vec3{0};
     m_owns_pixels = false;
   }
 }
 namespace broccoli {
   void Bitmap::blit(Bitmap const &src) {
-    blit(src, Rect{glm::i64vec2{0}, src.size()});
+    blit(src, Rect{glm::i32vec2{0}, src.dim()});
   }
   void Bitmap::blit(Bitmap const &src, Rect src_clip) {
-    blit(src, src_clip, glm::i64vec3{0});
+    blit(src, src_clip, glm::i32vec3{0});
   }
-  void Bitmap::blit(Bitmap const &src, Rect src_clip, glm::i64vec2 dst_offset) {
-    CHECK(m_size.z == src.size().z, "Expected blit source and destination to have identical depths");
-    auto depth = m_size.z;
-    glm::i32vec2 src_area = glm::max(src_clip.max_xy - src_clip.min_xy, glm::i64vec2{0});
-    glm::i32vec2 dst_area = glm::max(glm::i64vec2{m_size} - dst_offset, glm::i64vec2{0});
+  void Bitmap::blit(Bitmap const &src, Rect src_clip, glm::i32vec2 dst_offset) {
+    CHECK(m_dim.z == src.dim().z, "Expected blit source and destination to have identical depths");
+    auto depth = m_dim.z;
+    glm::i32vec2 src_area = glm::max(src_clip.max_xy - src_clip.min_xy, glm::i32vec2{0});
+    glm::i32vec2 dst_area = glm::max(glm::i32vec2{m_dim} - dst_offset, glm::i32vec2{0});
     glm::i32vec2 copy_area = glm::min(src_area, dst_area);
     if (copy_area.x == 0 || copy_area.y == 0) {
       return;
@@ -93,9 +93,9 @@ namespace broccoli {
     int size_x, size_y, depth;
     stbi_uc *memory = stbi_load(filepath, &size_x, &size_y, &depth, expected_depth);
     CHECK(depth == expected_depth, "Expected channel count did not match file channel count");
-    return {glm::i64vec3{size_x, size_y, depth}, memory, true};
+    return {glm::i32vec3{size_x, size_y, depth}, memory, true};
   }
-  Bitmap Bitmap::loadFromMemory(glm::i64vec3 size, void *pixels, bool owns_pixels) {
+  Bitmap Bitmap::loadFromMemory(glm::i32vec3 size, void *pixels, bool owns_pixels) {
     return {size, pixels, owns_pixels};
   }
 }

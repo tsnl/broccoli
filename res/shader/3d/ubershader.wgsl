@@ -1,13 +1,16 @@
+// Parameters:
+// - p_LIGHTING_MODEL: u32 => whether to use Blinn-Phong or PBR
+// - p_INSTANCE_COUNT: u32 => the maximum instance count drawn
+// - p_DIRECTIONAL_LIGHT_COUNT: u32 => the maximum directional lights drawn
+// - p_POINT_LIGHT_COUNT: u32 => the maximum point lights drawn
+
 const PI: f32 = 3.14159265;
-const INSTANCE_COUNT: u32 = 1024;
-const DIRECTIONAL_LIGHT_COUNT: u32 = 4;
-const POINT_LIGHT_COUNT: u32 = 16;
 
 struct LightUniform {
-  directional_light_dir_array: array<vec4<f32>, DIRECTIONAL_LIGHT_COUNT>,
-  directional_light_color_array: array<vec4<f32>, DIRECTIONAL_LIGHT_COUNT>,
-  point_light_pos_array: array<vec4<f32>, POINT_LIGHT_COUNT>,
-  point_light_color_array: array<vec4<f32>, POINT_LIGHT_COUNT>,
+  directional_light_dir_array: array<vec4<f32>, p_DIRECTIONAL_LIGHT_COUNT>,
+  directional_light_color_array: array<vec4<f32>, p_DIRECTIONAL_LIGHT_COUNT>,
+  point_light_pos_array: array<vec4<f32>, p_POINT_LIGHT_COUNT>,
+  point_light_color_array: array<vec4<f32>, p_POINT_LIGHT_COUNT>,
   directional_light_count: u32,
   point_light_count: u32,
   ambient_glow: f32,
@@ -41,7 +44,6 @@ struct MaterialUniform {
   metalness_uv_size: vec2<f32>,
   pbr_fresnel0: vec4<f32>,
   blinn_phong_shininess: f32,
-  lighting_model: u32,
   rsv00: u32,
   rsv01: u32,
   rsv02: u32,
@@ -52,6 +54,7 @@ struct MaterialUniform {
   rsv07: u32,
   rsv08: u32,
   rsv09: u32,
+  rsv10: u32,
 }
 struct VertexInput {
   @builtin(vertex_index) vertex_index: u32,
@@ -73,7 +76,7 @@ struct FragmentInput {
 
 @group(0) @binding(0) var<uniform> u_camera: CameraUniform;
 @group(0) @binding(1) var<uniform> u_light: LightUniform;
-@group(0) @binding(2) var<uniform> u_model_mats: array<mat4x4<f32>, INSTANCE_COUNT>;
+@group(0) @binding(2) var<uniform> u_model_mats: array<mat4x4<f32>, p_INSTANCE_COUNT>;
 
 @group(1) @binding(0) var<uniform> u_material: MaterialUniform;
 @group(1) @binding(1) var albedo_texture: texture_2d<f32>;
@@ -87,6 +90,7 @@ struct FragmentInput {
 
 @vertex
 fn vertexShaderMain(vertex_input: VertexInput) -> FragmentInput {
+  
   let position = unpackPosition(vertex_input.raw_position);
   let normal = 2.0 * vertex_input.raw_normal.xyz - 1.0;
   let tangent = 2.0 * vertex_input.raw_tangent.xyz - 1.0;
@@ -131,7 +135,7 @@ fn unpackPosition(raw_position: vec3<i32>) -> vec3<f32> {
 @fragment
 fn fragmentShaderMain(in: FragmentInput) -> @location(0) vec4f {
   // return vec4(computeNormal(in.world_normal.xyz, in.world_tangent.xyz, in.world_bitangent.xyz, in.uv), 1.0);
-  switch (u_material.lighting_model) {
+  switch (p_LIGHTING_MODEL) {
     case 1: { return blinnPhongMain(in); }
     case 2: { return pbrMain(in); }
     default: { return vec4<f32>(1.0, 0.0, 1.0, 1.0); }
@@ -162,7 +166,7 @@ fn computeNormal(normal: vec3<f32>, tangent: vec3<f32>, bitangent: vec3<f32>, uv
   // texture coordinates (UV) used to define the tangent and bitangent are different than those used to query textures:
   // the V axis is inverted.
   let is_tangent_zero = dot(tangent, tangent) <= 1e-5f;
-  let sample = textureSample(normal_texture, normal_texture_sampler, normalUv(uv)).xyz;
+  let sample = textureSampleLevel(normal_texture, normal_texture_sampler, normalUv(uv), 0.0).xyz;
   if is_tangent_zero {
     return normal;
   } else {
@@ -198,7 +202,7 @@ fn perspectiveProjection(in: vec4<f32>) -> vec4<f32> {
 // see: https://learnopengl.com/Advanced-Lighting/Advanced-Lighting
 // see: https://www.rorydriscoll.com/2009/01/25/energy-conservation-in-games/
 fn blinnPhongMain(in: FragmentInput) -> vec4<f32> {
-  let albedo = textureSample(albedo_texture, albedo_texture_sampler, albedoUv(in.uv)).xyz;
+  let albedo = textureSampleLevel(albedo_texture, albedo_texture_sampler, albedoUv(in.uv), 0.0).xyz;
   let normal = computeNormal(in.world_normal.xyz, in.world_tangent.xyz, in.world_bitangent.xyz, in.uv);
   let position = in.world_position.xyz;
   var result = blinnPhongAmbient(albedo, u_light.ambient_glow).xyz;
@@ -293,9 +297,9 @@ fn pbrMain(in: FragmentInput) -> vec4<f32> {
   let exposure_bias = u_camera.hdr_exposure_bias;
   let pbr_ao = 1.0f;
   let fresnel0 = u_material.pbr_fresnel0.xyz;
-  let albedo = textureSample(albedo_texture, albedo_texture_sampler, albedoUv(in.uv)).xyz;
-  let metalness = textureSample(metalness_texture, metalness_texture_sampler, metalnessUv(in.uv)).x;
-  let roughness = textureSample(roughness_texture, roughness_texture_sampler, roughnessUv(in.uv)).x;
+  let albedo = textureSampleLevel(albedo_texture, albedo_texture_sampler, albedoUv(in.uv), 0.0).xyz;
+  let metalness = textureSampleLevel(metalness_texture, metalness_texture_sampler, metalnessUv(in.uv), 0.0).x;
+  let roughness = textureSampleLevel(roughness_texture, roughness_texture_sampler, roughnessUv(in.uv), 0.0).x;
   let normal = computeNormal(in.world_normal.xyz, in.world_tangent.xyz, in.world_bitangent.xyz, in.uv);
   let position = in.world_position.xyz;
 
