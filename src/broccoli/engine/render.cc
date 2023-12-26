@@ -4,9 +4,11 @@
 #include <deque>
 #include <sstream>
 #include <limits>
+#include <algorithm>
 
 #include "glm/gtc/packing.hpp"
 
+#include "broccoli/engine/config.hh"
 #include "broccoli/engine/core.hh"
 
 //
@@ -16,6 +18,7 @@
 namespace broccoli {
   static const char *R3D_UBERSHADER_FILEPATH = "res/shader/3d/ubershader.wgsl";
   static const char *R3D_SHADOW_SHADER_FILEPATH = "res/shader/3d/shadow.wgsl";
+  static const char *R3D_OVERLAY_SHADER_FILEPATH = "res/shader/overlay.wgsl";
   static const char *R3D_SHADER_VS_ENTRY_POINT_NAME = "vertexShaderMain";
   static const char *R3D_SHADER_FS_ENTRY_POINT_NAME = "fragmentShaderMain";
 }
@@ -56,16 +59,52 @@ namespace broccoli {
   static const int32_t R3D_DIR_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2 = 10;
   static const std::array<double, R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT> R3D_DIR_LIGHT_SHADOW_CASCADE_MAX_DISTANCES = 
     std::to_array({2.0, 16.0, 128.0, 1024.0});
-  
+  static const double R3D_DIR_LIGHT_SHADOW_RADIUS = 1024.0;
+
   // Point lights:
   static const int32_t R3D_POINT_LIGHT_SHADOW_CASCADE_COUNT_LG2 = 2;
-  // static const int32_t R3D_POINT_LIGHT_SHADOW_CASCADE_COUNT = 1LLU << R3D_POINT_LIGHT_SHADOW_CASCADE_COUNT_LG2;
+  static const int32_t R3D_POINT_LIGHT_SHADOW_CASCADE_COUNT = 1LLU << R3D_POINT_LIGHT_SHADOW_CASCADE_COUNT_LG2;
   static const size_t R3D_POINT_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2 = 10;
   // static const std::array<double, R3D_POINT_LIGHT_SHADOW_CASCADE_COUNT> R3D_POINT_LIGHT_SHADOW_CASCADE_MAX_DISTANCES = 
   //   std::to_array({2.0, 16.0, 128.0, 1024.0});
 }
 namespace broccoli {
-  inline constexpr double r3d_dir_light_shadow_cascade_min_distance(size_t cascade_index) {
+  inline int32_t r3d_light_capacity_lg2(LightType light_type) {
+    switch (light_type) {
+      case LightType::Directional: return R3D_DIRECTIONAL_LIGHT_CAPACITY_LG2;
+      case LightType::Point: return R3D_POINT_LIGHT_CAPACITY_LG2;
+      default: PANIC("unknown/invalid light_type");
+    }
+  }
+  inline int32_t r3d_light_capacity(LightType light_type) {
+    switch (light_type) {
+      case LightType::Directional: return R3D_DIRECTIONAL_LIGHT_CAPACITY;
+      case LightType::Point: return R3D_POINT_LIGHT_CAPACITY;
+      default: PANIC("unknown/invalid light_type");
+    }
+  }
+  inline int32_t r3d_shadow_cascade_map_count_lg2(LightType light_type) {
+    switch (light_type) {
+      case LightType::Directional: return R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT_LG2;
+      case LightType::Point: return R3D_POINT_LIGHT_SHADOW_CASCADE_COUNT_LG2;
+      default: PANIC("unknown/invalid light_type");
+    }
+  }
+  inline int32_t r3d_shadow_cascade_map_count(LightType light_type) {
+    switch (light_type) {
+      case LightType::Directional: return R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT;
+      case LightType::Point: return R3D_POINT_LIGHT_SHADOW_CASCADE_COUNT;
+      default: PANIC("unknown/invalid light_type");
+    }
+  }
+  inline int32_t r3d_shadow_cascade_map_resolution_lg2(LightType light_type) {
+    switch (light_type) {
+      case LightType::Directional: return R3D_DIR_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2;
+      case LightType::Point: return R3D_POINT_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2;
+      default: PANIC("unknown/invalid light_type");
+    }
+  }
+  inline double minDirLightCascadeDistance(size_t cascade_index) {
     CHECK(cascade_index < R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT, "Bad cascade index");
     if (cascade_index == 0) {
       return 0.0;
@@ -73,10 +112,17 @@ namespace broccoli {
       return R3D_DIR_LIGHT_SHADOW_CASCADE_MAX_DISTANCES[cascade_index - 1];
     }
   }
-  inline constexpr double r3d_dir_light_shadow_cascade_max_distance(size_t cascade_index) {
+  inline double maxDirLightCascadeDistance(size_t cascade_index) {
     CHECK(cascade_index < R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT, "Bad cascade index");
     return R3D_DIR_LIGHT_SHADOW_CASCADE_MAX_DISTANCES[cascade_index];
   }
+}
+namespace broccoli {
+  static const uint32_t R3D_DEBUG_TAKEOUT_BUFFER_SIZE = std::max<uint32_t>({
+    (1U << (2 * R3D_DIR_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2)) * sizeof(float),
+    (1U << (2 * R3D_POINT_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2)) * sizeof(float),
+    0
+  });
 }
 
 //
@@ -133,6 +179,11 @@ namespace broccoli {
     uint32_t rsv09 = 0;
     uint32_t rsv10 = 0;
   };
+  struct OverlayUniform {
+    glm::i32vec2 screen_size;
+    glm::i32vec2 rect_size;
+    glm::i32vec2 rect_center;
+  };
   static_assert(sizeof(LightUniform) == 1024, "invalid LightUniform size");
   static_assert(sizeof(CameraUniform) == 128, "invalid CameraUniform size");
   static_assert(sizeof(MaterialUniform) == 128, "invalid MaterialUniform size");
@@ -141,6 +192,28 @@ namespace broccoli {
   static bool operator== (ShadowUniform s1, ShadowUniform s2) {
     return s1.proj_view_matrix == s2.proj_view_matrix;
   }
+}
+
+//
+// Object-object binary interface (POD):
+//
+
+namespace broccoli {
+  enum class OverlayTextureDrawRequestType {
+    ShadowMap,
+  };
+  struct OverlayTextureDrawRequestInfo {
+    OverlayTextureDrawRequestType type;
+    glm::i32vec2 viewport_center;
+    glm::i32vec2 viewport_size;
+    union {
+      struct { LightType light_type; int32_t light_idx; int32_t cascade_idx; } shadow_map;
+    } more;
+  };
+  struct WgpuShadowMapTextureOverlayResource {
+    wgpu::BindGroup bind_group;
+    wgpu::Sampler sampler;
+  };
 }
 
 //
@@ -338,9 +411,11 @@ namespace broccoli {
     int32_t shadow_map_count = 1 << (light_count_lg2 + cascades_per_light_lg2);
 
     std::string texture_descriptor_label = name + ".Texture";
+    wgpu::TextureUsage texture_usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TextureBinding;
+    texture_usage |= BROCCOLI_DEBUG ? wgpu::TextureUsage::CopySrc : static_cast<wgpu::TextureUsage>(0);
     wgpu::TextureDescriptor texture_descriptor = {
       .label = texture_descriptor_label.c_str(),
-      .usage = wgpu::TextureUsage::RenderAttachment | wgpu::TextureUsage::TextureBinding,
+      .usage = texture_usage,
       .dimension = wgpu::TextureDimension::e2D,
       .size = wgpu::Extent3D {
         .width = 1U << size_lg2,
@@ -359,6 +434,7 @@ namespace broccoli {
       wgpu::TextureViewDescriptor write_view_descriptor = {
         .label = write_view_descriptor_label.c_str(),
         .format = R3D_CSM_TEXTURE_FORMAT,
+        .dimension = wgpu::TextureViewDimension::e2D,
         .baseArrayLayer = static_cast<uint32_t>(i),
         .arrayLayerCount = 1,
         .aspect = wgpu::TextureAspect::DepthOnly,
@@ -366,6 +442,7 @@ namespace broccoli {
       wgpu::TextureViewDescriptor read_view_descriptor = {
         .label = read_view_descriptor_label.c_str(),
         .format = R3D_CSM_TEXTURE_FORMAT,
+        .dimension = wgpu::TextureViewDimension::e2D,
         .baseArrayLayer = static_cast<uint32_t>(i),
         .arrayLayerCount = 1,
         .aspect = wgpu::TextureAspect::All,
@@ -407,7 +484,7 @@ namespace broccoli {
   }
 }
 namespace broccoli {
-  const wgpu::Texture &RenderShadowMaps::texture() const {
+  wgpu::Texture RenderShadowMaps::texture() const {
     return m_texture;
   }
   const wgpu::TextureView &RenderShadowMaps::getWriteView(int32_t light_idx, int32_t cascade_idx) const {
@@ -443,21 +520,23 @@ namespace broccoli {
         initMonochromePalette(),
         wgpu::FilterMode::Nearest
       )
-    )
+    ),
+    m_framebuffer_size(0)
   {
     initFinalShaderModules();
     initShadowShaderModule();
-    initUniformBuffers();
+    initOverlayShaderModules();
+    initBuffers();
     initFinalPbrRenderPipeline();
     initFinalBlinnPhongRenderPipeline();
     initShadowRenderPipeline();
+    initOverlayRenderPipeline();
     initShadowMaps();
-    reinitColorTexture(framebuffer_size);
-    reinitDepthStencilTexture(framebuffer_size);
+    resize(framebuffer_size);
   }
 
   Bitmap RenderManager::initMonochromePalette() {
-    Bitmap bitmap{glm::i64vec3{R3D_MONO_PALETTE_TEXTURE_SIZE, R3D_MONO_PALETTE_TEXTURE_SIZE, 1}};
+    Bitmap bitmap{glm::i32vec3{R3D_MONO_PALETTE_TEXTURE_SIZE, R3D_MONO_PALETTE_TEXTURE_SIZE, 1}};
     for (int64_t r = 0; r <= 255; r++) {
       auto ptr = bitmap((r & 0x0F) >> 0, (r & 0xF0) >> 4);
       *ptr = static_cast<uint8_t>(r);
@@ -466,7 +545,7 @@ namespace broccoli {
   }
 
   Bitmap RenderManager::initRgbPalette() {
-    Bitmap bitmap{glm::i64vec3{R3D_RGB_PALETTE_TEXTURE_SIZE, R3D_RGB_PALETTE_TEXTURE_SIZE, 4}};
+    Bitmap bitmap{glm::i32vec3{R3D_RGB_PALETTE_TEXTURE_SIZE, R3D_RGB_PALETTE_TEXTURE_SIZE, 4}};
     for (int64_t r = 0; r <= 255; r++) {
       for (int64_t g = 0; g <= 255; g++) {
         for (int64_t b = 0; b <= 255; b++) {
@@ -519,6 +598,25 @@ namespace broccoli {
     );
   }
 
+  void RenderManager::initOverlayShaderModules() {
+    const char *filepath = R3D_OVERLAY_SHADER_FILEPATH;
+    std::string shader_text = readTextFile(filepath);
+    m_wgpu_overlay_monochrome_shader_module = initShaderModuleVariant(
+      filepath, 
+      shader_text,
+      std::unordered_map<std::string, std::string> {
+        {"p_SAMPLE_MODE", "1"}
+      }
+    );
+    m_wgpu_overlay_rgba_shader_module = initShaderModuleVariant(
+      filepath, 
+      shader_text,
+      std::unordered_map<std::string, std::string> {
+        {"p_SAMPLE_MODE", "4"}
+      }
+    );
+  }
+
   wgpu::ShaderModule RenderManager::initShaderModuleVariant(
     const char *filepath,
     const std::string &raw_shader_text,
@@ -567,27 +665,70 @@ namespace broccoli {
     return shader_module;
   }
 
-  void RenderManager::initUniformBuffers() {
-    wgpu::BufferDescriptor light_uniform_buffer_descriptor = {
-      .label = "Broccoli.Render.LightUniformBuffer",
-      .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
-      .size = sizeof(LightUniform),
-    };
-    m_wgpu_light_uniform_buffer = m_wgpu_device.CreateBuffer(&light_uniform_buffer_descriptor);
+  void RenderManager::initBuffers() {
+    // light uniform buffer:
+    {
+      wgpu::BufferDescriptor light_uniform_buffer_descriptor = {
+        .label = "Broccoli.Render.LightUniformBuffer",
+        .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
+        .size = sizeof(LightUniform),
+      };
+      m_wgpu_light_uniform_buffer = m_wgpu_device.CreateBuffer(&light_uniform_buffer_descriptor);
+    }
 
-    wgpu::BufferDescriptor camera_uniform_buffer_descriptor = {
-      .label = "Broccoli.Render.CameraUniformBuffer",
-      .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
-      .size = sizeof(CameraUniform),
-    };
-    m_wgpu_camera_uniform_buffer = m_wgpu_device.CreateBuffer(&camera_uniform_buffer_descriptor);
-    
-    wgpu::BufferDescriptor draw_transform_uniform_buffer_descriptor = {
-      .label = "Broccoli.Render.TransformUniformBuffer",
-      .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
-      .size = R3D_INSTANCE_CAPACITY * sizeof(glm::mat4x4),
-    };
-    m_wgpu_transform_uniform_buffer = m_wgpu_device.CreateBuffer(&draw_transform_uniform_buffer_descriptor);
+    // camera uniform buffer:
+    {
+      wgpu::BufferDescriptor camera_uniform_buffer_descriptor = {
+        .label = "Broccoli.Render.CameraUniformBuffer",
+        .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
+        .size = sizeof(CameraUniform),
+      };
+      m_wgpu_camera_uniform_buffer = m_wgpu_device.CreateBuffer(&camera_uniform_buffer_descriptor);
+    }
+
+    // transform uniform buffer:
+    {
+      wgpu::BufferDescriptor draw_transform_uniform_buffer_descriptor = {
+        .label = "Broccoli.Render.TransformUniformBuffer",
+        .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
+        .size = R3D_INSTANCE_CAPACITY * sizeof(glm::mat4x4),
+      };
+      m_wgpu_transform_uniform_buffer = m_wgpu_device.CreateBuffer(&draw_transform_uniform_buffer_descriptor);
+    }
+
+    // overlay vertex buffer:
+    {
+      wgpu::BufferDescriptor overlay_vertex_buffer_descriptor = {
+        .label = "Broccoli.Render.Overlay.VertexBuffer",
+        .usage = wgpu::BufferUsage::Vertex | wgpu::BufferUsage::CopyDst,
+        .size = sizeof(glm::f32vec2) * 6,
+      };
+      m_wgpu_overlay_vertex_buffer = m_wgpu_device.CreateBuffer(&overlay_vertex_buffer_descriptor);
+      auto vertex_data = std::to_array({
+        glm::fvec2{+1.0, +1.0},
+        glm::fvec2{-1.0, +1.0},
+        glm::fvec2{-1.0, -1.0},
+        glm::fvec2{+1.0, +1.0},
+        glm::fvec2{-1.0, -1.0},
+        glm::fvec2{+1.0, -1.0},
+      });
+      m_wgpu_device.GetQueue().WriteBuffer(
+        m_wgpu_overlay_vertex_buffer,
+        0,
+        &vertex_data,
+        sizeof(vertex_data)
+      );
+    }
+
+    // overlay uniform buffer:
+    {
+      wgpu::BufferDescriptor overlay_uniform_buffer_descriptor = {
+        .label = "Broccoli.Render.Overlay.UniformBuffer",
+        .usage = wgpu::BufferUsage::Uniform | wgpu::BufferUsage::CopyDst,
+        .size = sizeof(OverlayUniform),
+      };
+      m_wgpu_overlay_uniform_buffer = m_wgpu_device.CreateBuffer(&overlay_uniform_buffer_descriptor);
+    }
   }
 
   void RenderManager::reinitColorTexture(glm::ivec2 framebuffer_size) {
@@ -655,6 +796,80 @@ namespace broccoli {
     };
     auto texture_view = m_wgpu_render_target_depth_stencil_texture.CreateView(&depth_view_descriptor);
     m_wgpu_render_target_depth_stencil_texture_view = texture_view;
+  }
+
+  void RenderManager::reinitOverlayTexture(glm::ivec2 framebuffer_size) {
+    // Overlay texture:
+    {
+      if (m_wgpu_final_overlay_texture) {
+        m_wgpu_final_overlay_texture.Destroy();
+      }
+      wgpu::TextureDescriptor overlay_texture_descriptor = {
+        .label = "Broccoli.Render.Overlay.Texture",
+        .usage = wgpu::TextureUsage::CopyDst | wgpu::TextureUsage::TextureBinding,
+        .size = wgpu::Extent3D {
+          .width=static_cast<uint32_t>(framebuffer_size.x),
+          .height=static_cast<uint32_t>(framebuffer_size.y)
+        },
+        .format = wgpu::TextureFormat::RGBA8Unorm,
+      };
+      m_wgpu_final_overlay_texture = m_wgpu_device.CreateTexture(&overlay_texture_descriptor);
+    }
+
+    // Overlay texture view:
+    {
+      wgpu::TextureViewDescriptor overlay_texture_view_descriptor = {
+        .label = "Broccoli.Render.Overlay.TextureView",
+      };
+      m_wgpu_final_overlay_texture_view = m_wgpu_final_overlay_texture.CreateView(&overlay_texture_view_descriptor);
+    }
+
+    // Overlay sampler:
+    {
+      wgpu::SamplerDescriptor overlay_sampler_descriptor = {
+        .label = "Broccoli.Render.Overlay.Sampler"
+      };
+      m_wgpu_final_overlay_sampler = m_wgpu_device.CreateSampler(&overlay_sampler_descriptor);
+    }
+
+    // Bind group 1:
+    {
+      auto bind_group_1_entries = std::to_array({
+        wgpu::BindGroupEntry{.binding=0, .textureView=m_wgpu_final_overlay_texture_view},
+        wgpu::BindGroupEntry{.binding=1, .sampler=m_wgpu_final_overlay_sampler},
+      });
+      wgpu::BindGroupDescriptor bind_group_1_descriptor = {
+        .label = "Broccoli.Render.Overlay.BindGroup1",
+        .layout = m_overlay_rgba_render_pipeline.textureSelectBindGroupLayout(),
+        .entryCount = bind_group_1_entries.size(),
+        .entries = bind_group_1_entries.data(),
+      };
+      m_wgpu_final_overlay_bind_group_1 = m_wgpu_device.CreateBindGroup(&bind_group_1_descriptor);
+    }
+
+    // Overlay bitmap:
+    {
+      m_final_overlay_bitmap = Bitmap{glm::i32vec3{framebuffer_size, 4}};
+    }
+  }
+}
+
+namespace broccoli {
+  void RenderManager::lazyInitDebugTakeoutBuffer() {
+#if !BROCCOLI_DEBUG
+    PANIC("Cannot initialize debug takout buffer unless in debug mode.");
+#else
+    if (m_wgpu_debug_takeout_buffer) {
+      return;
+    }
+    wgpu::BufferDescriptor desc = {
+      .label = "Broccoli.Render.Debug.TakoutBuffer",
+      .usage = wgpu::BufferUsage::CopyDst | wgpu::BufferUsage::MapRead,
+      .size = R3D_DEBUG_TAKEOUT_BUFFER_SIZE,
+      .mappedAtCreation = false,
+    };
+    m_wgpu_debug_takeout_buffer = m_wgpu_device.CreateBuffer(&desc);
+#endif
   }
 }
 
@@ -942,6 +1157,7 @@ namespace broccoli {
     }
 
     // render pipeline:
+    // TODO: must disable back-face culling for dir-lights, but can leave enabled for other types of lights.
     {
       auto vertex_buffer_attrib_layout = std::to_array({
         wgpu::VertexAttribute{wgpu::VertexFormat::Sint32x3, offsetof(Vertex, offset), 0},
@@ -962,7 +1178,7 @@ namespace broccoli {
         .topology = wgpu::PrimitiveTopology::TriangleList,
         .stripIndexFormat = wgpu::IndexFormat::Undefined,
         .frontFace = wgpu::FrontFace::CCW,
-        .cullMode = wgpu::CullMode::Back,
+        .cullMode = wgpu::CullMode::None,
       };
       wgpu::DepthStencilState depth_stencil_state = {
         .format = R3D_CSM_TEXTURE_FORMAT,
@@ -1008,8 +1224,139 @@ namespace broccoli {
     }
   }
 
+  OverlayRenderPipeline RenderManager::helpInitOverlayRenderPipeline(uint32_t overlay_texture_type) {
+    OverlayRenderPipeline render_pipeline;
+
+    // bind group layout 0
+    {
+      auto entries = std::to_array({
+        wgpu::BindGroupLayoutEntry {
+          .binding = 0,
+          .visibility = wgpu::ShaderStage::Vertex,
+          .buffer = wgpu::BufferBindingLayout {
+            .type = wgpu::BufferBindingType::Uniform,
+            .minBindingSize = sizeof(OverlayUniform),
+          }
+        },
+      });
+      wgpu::BindGroupLayoutDescriptor desc = {
+        .label = "Broccoli.Render.Overlay.BindGroup0Layout",
+        .entryCount = entries.size(),
+        .entries = entries.data(),
+      };
+      render_pipeline.bind_group_layouts[0] = m_wgpu_device.CreateBindGroupLayout(&desc);
+    }
+
+    // bind group layout 1
+    {
+      auto entries = std::to_array({
+        wgpu::BindGroupLayoutEntry {
+          .binding = 0,
+          .visibility = wgpu::ShaderStage::Fragment,
+          .texture = wgpu::TextureBindingLayout {
+            .sampleType = wgpu::TextureSampleType::UnfilterableFloat,
+            .viewDimension = wgpu::TextureViewDimension::e2D,
+          },
+        },
+        wgpu::BindGroupLayoutEntry {
+          .binding = 1,
+          .visibility = wgpu::ShaderStage::Fragment,
+          .sampler = {.type = wgpu::SamplerBindingType::NonFiltering},
+        },
+      });
+      wgpu::BindGroupLayoutDescriptor desc = {
+        .label = "Broccoli.Render.Overlay.BindGroup1Layout",
+        .entryCount = entries.size(),
+        .entries = entries.data(),
+      };
+      render_pipeline.bind_group_layouts[1] = m_wgpu_device.CreateBindGroupLayout(&desc);
+    }
+
+    // pipeline layout:
+    {
+      wgpu::PipelineLayoutDescriptor desc = {
+        .label = "Broccoli.Render.Overlay.PipelineLayout",
+        .bindGroupLayoutCount = render_pipeline.bind_group_layouts.size(),
+        .bindGroupLayouts = render_pipeline.bind_group_layouts.data(),
+      };
+      render_pipeline.pipeline_layout = m_wgpu_device.CreatePipelineLayout(&desc);
+    }
+
+    // render pipeline:
+    {
+      auto vertex_attributes = std::to_array({
+        wgpu::VertexAttribute{.format=wgpu::VertexFormat::Float32x2, .offset=0, .shaderLocation=0},
+      });
+      // Using premultiplied alpha 'blend over' operator:
+      // See: https://en.wikipedia.org/wiki/Alpha_compositing
+      wgpu::BlendState blend_state = {
+        .color = {
+          .operation = wgpu::BlendOperation::Add,
+          .srcFactor = wgpu::BlendFactor::One,
+          .dstFactor = wgpu::BlendFactor::OneMinusSrcAlpha,
+        },
+        .alpha = {
+          .operation = wgpu::BlendOperation::Add,
+          .srcFactor = wgpu::BlendFactor::One,
+          .dstFactor = wgpu::BlendFactor::OneMinusSrcAlpha,
+        },
+      };
+      wgpu::ColorTargetState color_target_state = {
+        .format = wgpu::TextureFormat::BGRA8Unorm,
+        .blend = &blend_state,
+        .writeMask = wgpu::ColorWriteMask::All,
+      };
+      wgpu::VertexBufferLayout vertex_buffer_layout = {
+        .arrayStride = sizeof(glm::f32vec2),
+        .attributeCount = vertex_attributes.size(),
+        .attributes = vertex_attributes.data(),
+      };
+      wgpu::VertexState vertex_state = {
+        .module = wgpuOverlayShaderModule(overlay_texture_type),
+        .entryPoint = R3D_SHADER_VS_ENTRY_POINT_NAME,
+        .bufferCount = 1,
+        .buffers = &vertex_buffer_layout,
+      };
+      wgpu::FragmentState fragment_state = {
+        .module = wgpuOverlayShaderModule(overlay_texture_type),
+        .entryPoint = R3D_SHADER_FS_ENTRY_POINT_NAME,
+        .targetCount = 1,
+        .targets = &color_target_state
+      };
+      wgpu::RenderPipelineDescriptor desc = {
+        .label = "Broccoli.Render.Overlay.Pipeline",
+        .layout = render_pipeline.pipeline_layout,
+        .vertex = vertex_state,
+        .multisample = {.count=R3D_MSAA_SAMPLE_COUNT},
+        .fragment = &fragment_state,
+      };
+      render_pipeline.pipeline = m_wgpu_device.CreateRenderPipeline(&desc);
+    }
+
+    // bind group 0:
+    {
+      auto entries = std::to_array({
+        wgpu::BindGroupEntry{.binding=0, .buffer=m_wgpu_overlay_uniform_buffer, .offset=0, .size=sizeof(OverlayUniform)},
+      });
+      wgpu::BindGroupDescriptor desc = {
+        .label = "Broccoli.Render.Overlay.BindGroup0",
+        .layout = render_pipeline.bind_group_layouts[0],
+        .entryCount = entries.size(),
+        .entries = entries.data(),
+      };
+      render_pipeline.bind_groups_prefix[0] = m_wgpu_device.CreateBindGroup(&desc);
+    }
+
+    // all done:
+    return render_pipeline;
+  }
+  void RenderManager::initOverlayRenderPipeline() {
+    m_overlay_monochrome_render_pipeline = helpInitOverlayRenderPipeline(1);
+    m_overlay_rgba_render_pipeline = helpInitOverlayRenderPipeline(4);
+  }
+
   void RenderManager::initShadowMaps() {
-    m_dir_light_shadow_maps.init(
+    getShadowMaps(LightType::Directional).init(
       m_wgpu_device, 
       m_shadow_render_pipeline,
       static_cast<int32_t>(R3D_DIRECTIONAL_LIGHT_CAPACITY_LG2),
@@ -1017,7 +1364,7 @@ namespace broccoli {
       static_cast<int32_t>(R3D_DIR_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2), 
       "Broccoli.Render.ShadowMaps.DirLight"
     );
-    m_pt_light_shadow_maps.init(
+    getShadowMaps(LightType::Point).init(
       m_wgpu_device, 
       m_shadow_render_pipeline,
       static_cast<int32_t>(R3D_POINT_LIGHT_CAPACITY_LG2),
@@ -1031,6 +1378,18 @@ namespace broccoli {
     m_materials.reserve(R3D_MATERIAL_TABLE_INIT_CAPACITY);
   }
 }
+namespace broccoli {
+  void RenderManager::resize(glm::i32vec2 framebuffer_size) {
+    if (m_framebuffer_size == framebuffer_size) {
+      return;
+    }
+    reinitColorTexture(framebuffer_size);
+    reinitDepthStencilTexture(framebuffer_size);
+    reinitOverlayTexture(framebuffer_size);
+    m_framebuffer_size = framebuffer_size;
+  }
+}
+
 namespace broccoli {
   GeometryBuilder RenderManager::createGeometryBuilder() {
     return {*this};
@@ -1096,6 +1455,9 @@ namespace broccoli {
   }
 }
 namespace broccoli {
+  glm::i32vec2 RenderManager::framebufferSize() const {
+    return m_framebuffer_size;
+  }
   const wgpu::Device &RenderManager::wgpuDevice() const {
     return m_wgpu_device;
   }
@@ -1115,6 +1477,13 @@ namespace broccoli {
       default: PANIC("Invalid lighting model ID");
     }
   }
+  wgpu::ShaderModule RenderManager::wgpuOverlayShaderModule(uint32_t sample_mode_id) const {
+    switch (sample_mode_id) {
+      case 1: return m_wgpu_overlay_monochrome_shader_module;
+      case 4: return m_wgpu_overlay_rgba_shader_module;
+      default: PANIC("Invalid sample mode ID");
+    }
+  }
   const FinalRenderPipeline &RenderManager::getFinalRenderPipeline(uint32_t lighting_model_id) const {
     switch (static_cast<MaterialLightingModel>(lighting_model_id)) {
       case MaterialLightingModel::BlinnPhong:
@@ -1128,17 +1497,36 @@ namespace broccoli {
   const ShadowRenderPipeline &RenderManager::getShadowRenderPipeline() const {
     return m_shadow_render_pipeline;
   }
+  const OverlayRenderPipeline &RenderManager::getOverlayRenderPipeline(uint32_t sample_mode_id) const {
+    switch (sample_mode_id) {
+      case 1: return m_overlay_monochrome_render_pipeline;
+      case 4: return m_overlay_rgba_render_pipeline;
+      default: PANIC("Invalid sample mode ID");
+    }
+  }
+  const wgpu::Texture RenderManager::wgpuOverlayTexture() const {
+    return m_wgpu_final_overlay_texture;
+  }
+  const wgpu::Buffer &RenderManager::wgpuOverlayUniformBuffer() const {
+    return m_wgpu_overlay_uniform_buffer;
+  }
+  const wgpu::Buffer &RenderManager::wgpuOverlayVertexBuffer() const {
+    return m_wgpu_overlay_vertex_buffer;
+  }
+  wgpu::BindGroup RenderManager::wgpuOverlayBindGroup1() const {
+    return m_wgpu_final_overlay_bind_group_1;
+  }
   const wgpu::TextureView &RenderManager::wgpuRenderTargetColorTextureView() const {
     return m_wgpu_render_target_color_texture_view;
   }
   const wgpu::TextureView &RenderManager::wgpuRenderTargetDepthStencilTextureView() const {
     return m_wgpu_render_target_depth_stencil_texture_view;
   }
-  const RenderShadowMaps &RenderManager::dirLightShadowMaps() const {
-    return m_dir_light_shadow_maps;
+  RenderShadowMaps &RenderManager::getShadowMaps(LightType light_type) {
+    return m_light_shadow_maps[light_type];
   }
-  const RenderShadowMaps &RenderManager::pointLightShadowMaps() const {
-    return m_pt_light_shadow_maps;
+  const RenderShadowMaps &RenderManager::getShadowMaps(LightType light_type) const {
+    return m_light_shadow_maps[light_type];
   }
   const RenderTexture &RenderManager::rgbPalette() const {
     return m_rgb_palette;
@@ -1151,23 +1539,122 @@ namespace broccoli {
   }
 }
 namespace broccoli {
+  void RenderManager::debug_takeoutShadowMap(LightType light_type, int32_t light_index, int32_t cascade_index, std::function<void(FloatBitmap)> cb) {
+    lazyInitDebugTakeoutBuffer();
+
+    wgpu::CommandEncoderDescriptor command_encoder_descriptor = {
+      .label = "Broccoli.Render.Debug.ShadowMapTakeoutCommandEncoder",
+    };
+    wgpu::CommandEncoder command_encoder = m_wgpu_device.CreateCommandEncoder(&command_encoder_descriptor);
+    {
+      const wgpu::ImageCopyTexture source = {
+        .texture = getShadowMaps(light_type).texture(),
+        .origin = wgpu::Origin3D {
+          .x = 0,
+          .y = 0,
+          .z = static_cast<uint32_t>((light_index << r3d_shadow_cascade_map_count_lg2(light_type)) + cascade_index),
+        },
+      };
+      const wgpu::ImageCopyBuffer destination = {
+        .layout = {
+          .bytesPerRow = static_cast<size_t>((1U << r3d_shadow_cascade_map_resolution_lg2(light_type)) * sizeof(float)),
+          .rowsPerImage = static_cast<size_t>((1U << r3d_shadow_cascade_map_resolution_lg2(light_type))),
+        },
+        .buffer = m_wgpu_debug_takeout_buffer,
+      };
+      const wgpu::Extent3D copy_size = {
+        .width = 1U << r3d_shadow_cascade_map_resolution_lg2(light_type),
+        .height = 1U << r3d_shadow_cascade_map_resolution_lg2(light_type),
+        .depthOrArrayLayers = 1,
+      };
+      command_encoder.CopyTextureToBuffer(&source, &destination, &copy_size);
+    }
+    wgpu::CommandBuffer command_buffer = command_encoder.Finish();
+    m_wgpu_device.GetQueue().Submit(1, &command_buffer);
+
+    struct MapUserData {
+      LightType light_type;
+      wgpu::Buffer mapped_buffer;
+      std::function<void(FloatBitmap)> cb;
+    };
+    m_wgpu_debug_takeout_buffer.MapAsync(
+      wgpu::MapMode::Read,
+      0,
+      static_cast<size_t>(1U << (2 * r3d_shadow_cascade_map_resolution_lg2(light_type))) * sizeof(float),
+      [] (WGPUBufferMapAsyncStatus status, void *userdata) {
+        CHECK(status == WGPUBufferMapAsyncStatus_Success, "Mapping takeout buffer failed when fetching shadow map.");
+        MapUserData *data = reinterpret_cast<MapUserData*>(userdata);
+        
+        glm::i32vec3 output_dimension = {
+          1 << r3d_shadow_cascade_map_resolution_lg2(data->light_type),
+          1 << r3d_shadow_cascade_map_resolution_lg2(data->light_type),
+          1,
+        };
+        FloatBitmap output{output_dimension};
+
+        CHECK(data->mapped_buffer.GetMapState() == wgpu::BufferMapState::Mapped, "Expected buffer to be mapped.");
+        const void *src = data->mapped_buffer.GetConstMappedRange();
+        CHECK(src, "Expected mapped buffer range to be valid");
+        memcpy(output.data(), src, output.dataSize());
+
+        data->cb(std::move(output));
+
+        data->mapped_buffer.Unmap();
+        delete data;
+      },
+      new MapUserData{light_type, m_wgpu_debug_takeout_buffer, std::move(cb)}
+    );
+  }
+}
+namespace broccoli {
   RenderFrame RenderManager::frame(RenderTarget target) {
-    return {*this, target};
+    resize(target.size);
+    return {*this, target, m_final_overlay_bitmap};
   }
 }
 
 //
-// Interface: Renderer:
+// Interface: RenderFrame:
 //
 
 namespace broccoli {
-  RenderFrame::RenderFrame(RenderManager &manager, RenderTarget target)
+  RenderFrame::RenderFrame(RenderManager &manager, RenderTarget target, Bitmap &overlay_bitmap)
   : m_manager(manager),
-    m_target(target)
+    m_target(target),
+    m_overlay_bitmap(overlay_bitmap),
+    m_state(0)
   {}
 }
 namespace broccoli {
   void RenderFrame::clear(glm::dvec3 cc) {
+    CHECK((m_state & static_cast<uint32_t>(State::CLEAR_COMPLETE)) == 0, "Clear can only be called once per-frame.");
+    CHECK((m_state & static_cast<uint32_t>(State::DRAW_COMPLETE)) == 0, "Clear cannot be called after draw.");
+    CHECK((m_state & static_cast<uint32_t>(State::OVERLAY_COMPLETE)) == 0, "Clear cannot be called after overlay.");
+    drawClear(cc);
+    m_state |= static_cast<uint32_t>(State::CLEAR_COMPLETE);
+  }
+  void RenderFrame::draw(RenderCamera camera, std::function<void(Renderer &)> draw_cb) {
+    CHECK((m_state & static_cast<uint32_t>(State::DRAW_COMPLETE)) == 0, "Draw can only be called once per-frame.");
+    CHECK((m_state & static_cast<uint32_t>(State::OVERLAY_COMPLETE)) == 0, "Draw cannot be called after overlay.");
+    {
+      Renderer renderer = {m_manager, m_target, camera};
+      draw_cb(renderer);
+      // allow Renderer::~Renderer to run, thereby applying all drawing.
+    }
+    m_state |= static_cast<uint32_t>(State::DRAW_COMPLETE);
+  }
+  void RenderFrame::overlay(std::function<void(OverlayRenderer&)> draw_cb) {
+    m_overlay_bitmap.clear();
+    {
+      OverlayRenderer overlay_renderer{m_manager, m_target, m_overlay_bitmap};
+      draw_cb(overlay_renderer);
+      // allow OverlayRenderer::~OverlayRenderer to run, thereby applying all drawing.
+    }
+    m_state |= static_cast<uint32_t>(State::OVERLAY_COMPLETE);
+  }
+}
+namespace broccoli {
+  void RenderFrame::drawClear(glm::dvec3 cc) {
     wgpu::CommandEncoderDescriptor command_encoder_descriptor = {.label = "Broccoli.Render.Clear.CommandEncoder"};
     wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
     wgpu::RenderPassColorAttachment rp_color_attachment = {
@@ -1185,7 +1672,7 @@ namespace broccoli {
     };
     wgpu::RenderPassDescriptor rp_descriptor = {
       .nextInChain = nullptr,
-      .label = "Broccoli.RenderPass3D.WGPURenderPassEncoder",
+      .label = "Broccoli.Render.Clear.RenderPassEncoder",
       .colorAttachmentCount = 1,
       .colorAttachments = &rp_color_attachment,
       .depthStencilAttachment = &rp_depth_attachment,
@@ -1195,9 +1682,204 @@ namespace broccoli {
     wgpu::CommandBuffer command_buffer = command_encoder.Finish();
     m_manager.wgpuDevice().GetQueue().Submit(1, &command_buffer);
   }
-  
-  Renderer RenderFrame::useCamera(RenderCamera camera) {
-    return {m_manager, m_target, camera};
+}
+
+//
+// Interface: OverlayRenderer
+//
+
+namespace broccoli {
+  OverlayRenderer::OverlayRenderer(RenderManager &manager, RenderTarget &target, Bitmap &bitmap)
+  : m_manager(manager),
+    m_target(target),
+    m_bitmap(bitmap),
+    m_texture_draw_requests()
+  {
+    initAllShadowMapViewResources();
+  }
+  OverlayRenderer::~OverlayRenderer() {
+    // NOTE: requests to draw a texture from the GPU directly are processed AFTER drawing the bitmap overlay.
+    // It is the user's responsibility to ensure anything in the bitmap obscured by a texture overlay can be safely 
+    // ignored.
+    drawOverlayBitmap();
+    drawOverlayTextures();
+  }
+}
+namespace broccoli {
+  void OverlayRenderer::initAllShadowMapViewResources() {
+    for (uint32_t i_light_type = 0; i_light_type < static_cast<uint32_t>(LightType::Metadata_Count); i_light_type++) {
+      LightType light_type = static_cast<LightType>(i_light_type);
+      size_t capacity = 1 << (r3d_light_capacity_lg2(light_type) + r3d_shadow_cascade_map_count_lg2(light_type));
+      m_shadow_map_view_resources[light_type].reserve(capacity);
+      for (int32_t i_light = 0; i_light < r3d_light_capacity(light_type); i_light++) {
+        for (int32_t i_cascade = 0; i_cascade < r3d_shadow_cascade_map_count(light_type); i_cascade++) {
+          wgpu::SamplerDescriptor sampler_desc = {
+            .label = "Broccoli.Render.Overlay.ShadowViz.Sampler",
+          };
+          const wgpu::TextureView &view = m_manager.getShadowMaps(light_type).getReadView(i_light, i_cascade);
+          wgpu::Sampler sampler = m_manager.wgpuDevice().CreateSampler(&sampler_desc);
+          auto bind_group_entries = std::to_array({
+            wgpu::BindGroupEntry{.binding=0, .textureView=view},
+            wgpu::BindGroupEntry{.binding=1, .sampler=sampler},
+          });
+          wgpu::BindGroupDescriptor bind_group_desc = {
+            .label = "Broccoli.Render.Overlay.ShadowViz.BindGroup1",
+            .layout = m_manager.getOverlayRenderPipeline(1).textureSelectBindGroupLayout(),
+            .entryCount = bind_group_entries.size(),
+            .entries = bind_group_entries.data(),
+          };
+          wgpu::BindGroup bind_group = m_manager.wgpuDevice().CreateBindGroup(&bind_group_desc);
+          WgpuShadowMapTextureOverlayResource resource = {
+            .bind_group = bind_group,
+            .sampler = sampler,
+          };
+          m_shadow_map_view_resources[light_type].emplace_back(std::move(resource));
+        }
+      }
+    }
+  }
+}
+namespace broccoli {
+  RenderManager &OverlayRenderer::manager() {
+    return m_manager;
+  }
+  Bitmap &OverlayRenderer::bitmap() {
+    return m_bitmap;
+  }
+  void OverlayRenderer::drawShadowMapTexture(glm::i32vec2 vp_center, glm::i32vec2 vp_size, LightType light_type, int32_t light_idx, int32_t cascade_idx) {
+    m_texture_draw_requests.emplace_back(
+      OverlayTextureDrawRequestInfo {
+        .type = OverlayTextureDrawRequestType::ShadowMap,
+        .viewport_center = vp_center,
+        .viewport_size = vp_size,
+        .more = {.shadow_map = {light_type, light_idx, cascade_idx}},
+      }  
+    );
+  }
+}
+namespace broccoli {
+  void OverlayRenderer::drawOverlayBitmap() const {
+    // copy overlay bitmap to texture
+    {
+      wgpu::ImageCopyTexture dst_desc = {
+        .texture = m_manager.wgpuOverlayTexture(),
+        .origin = wgpu::Origin3D{},
+      };
+      wgpu::TextureDataLayout dst_data_layout = {
+        .bytesPerRow = static_cast<uint32_t>(m_bitmap.pitch()),
+        .rowsPerImage = static_cast<uint32_t>(m_bitmap.rows()),
+      };
+      wgpu::Extent3D write_size = {
+        .width = static_cast<uint32_t>(m_bitmap.dim().x),
+        .height = static_cast<uint32_t>(m_bitmap.dim().y),
+      };
+      m_manager.wgpuDevice().GetQueue().WriteTexture(
+        &dst_desc,
+        m_bitmap.data(),
+        m_bitmap.dataSize(),
+        &dst_data_layout,
+        &write_size
+      );
+    }
+
+    // write screen size into uniform buffer:
+    {
+      OverlayUniform overlay_uniform_buffer = {
+        .screen_size = m_manager.framebufferSize(),
+        .rect_size = m_manager.framebufferSize(),
+        .rect_center = m_manager.framebufferSize() / 2,
+      };
+      m_manager.wgpuDevice().GetQueue().WriteBuffer(
+        m_manager.wgpuOverlayUniformBuffer(),
+        0,
+        &overlay_uniform_buffer,
+        sizeof(overlay_uniform_buffer)
+      );
+    }
+
+    // draw overlay texture using a loaded render pipeline
+    {
+      wgpu::CommandEncoderDescriptor ce_desc = {
+        .label = "Broccoli.Render.Overlay.CommandEncoder",
+      };
+      wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&ce_desc);
+      
+      wgpu::RenderPassColorAttachment rp_color_attachment = {
+        .view = m_manager.wgpuRenderTargetColorTextureView(),
+        .resolveTarget = m_target.texture_view,
+        .loadOp = wgpu::LoadOp::Load,
+        .storeOp = wgpu::StoreOp::Store,
+      };
+      wgpu::RenderPassDescriptor rp_desc = {
+        .label = "Broccoli.Render.Overlay.RenderPass",
+        .colorAttachmentCount = 1,
+        .colorAttachments = &rp_color_attachment,
+      };
+      wgpu::RenderPassEncoder rp_encoder = command_encoder.BeginRenderPass(&rp_desc);
+      {
+        rp_encoder.SetPipeline(m_manager.getOverlayRenderPipeline(4).pipeline);
+        rp_encoder.SetVertexBuffer(0, m_manager.wgpuOverlayVertexBuffer());
+        m_manager.getOverlayRenderPipeline(4).setBindGroups(rp_encoder, std::to_array({m_manager.wgpuOverlayBindGroup1()}));
+        rp_encoder.Draw(6);
+      }
+      rp_encoder.End();
+      wgpu::CommandBuffer command_buffer = command_encoder.Finish();
+      m_manager.wgpuDevice().GetQueue().Submit(1, &command_buffer);
+    }
+  }
+  void OverlayRenderer::drawOverlayTextures() const {
+    for (const auto &request: m_texture_draw_requests) {
+      switch (request.type) {
+        case OverlayTextureDrawRequestType::ShadowMap: {
+          const auto &more = request.more.shadow_map;
+          drawShadowMapOverlayTexture(request.viewport_center, request.viewport_size, more.light_type, more.light_idx, more.cascade_idx);
+        }
+      }
+    }
+  }
+  void OverlayRenderer::drawShadowMapOverlayTexture(glm::i32vec2 vp_center, glm::i32vec2 vp_size, LightType light_type, int32_t light_idx, int32_t cascade_idx) const {
+    helpDrawOverlayTexture(
+      vp_center,
+      vp_size,
+      1,
+      [this, light_type, light_idx, cascade_idx] (wgpu::RenderPassEncoder &encoder, const OverlayRenderPipeline &rp) {
+        const size_t offset = (light_idx << r3d_light_capacity_lg2(light_type)) + cascade_idx;
+        const WgpuShadowMapTextureOverlayResource &res = m_shadow_map_view_resources[light_type][offset];
+        rp.setBindGroups(encoder, std::to_array({res.bind_group}));
+      }
+    );
+  }
+  void OverlayRenderer::helpDrawOverlayTexture(glm::i32vec2 vp_center, glm::i32vec2 vp_size, uint32_t sample_mode_id, std::function<void(wgpu::RenderPassEncoder&, OverlayRenderPipeline const&)> cb) const {
+    wgpu::CommandEncoderDescriptor ce_desc = {
+      .label = "Broccoli.Render.Overlay.CommandEncoder",
+    };
+    wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&ce_desc);
+    
+    wgpu::RenderPassColorAttachment rp_color_attachment = {
+      .view = m_manager.wgpuRenderTargetColorTextureView(),
+      .resolveTarget = m_target.texture_view,
+      .loadOp = wgpu::LoadOp::Load,
+      .storeOp = wgpu::StoreOp::Store,
+    };
+    wgpu::RenderPassDescriptor rp_desc = {
+      .label = "Broccoli.Render.Overlay.RenderPass",
+      .colorAttachmentCount = 1,
+      .colorAttachments = &rp_color_attachment,
+    };
+    wgpu::RenderPassEncoder rp_encoder = command_encoder.BeginRenderPass(&rp_desc);
+    {
+      const OverlayRenderPipeline &rp = m_manager.getOverlayRenderPipeline(sample_mode_id);
+      glm::i32vec2 min_vp_xy = vp_center - vp_size / 2;
+      rp_encoder.SetViewport(min_vp_xy.x, min_vp_xy.y, vp_size.x, vp_size.y, 0.0, 1.0);
+      rp_encoder.SetPipeline(rp.pipeline);
+      rp_encoder.SetVertexBuffer(0, m_manager.wgpuOverlayVertexBuffer());
+      cb(rp_encoder, rp);
+      rp_encoder.Draw(6);
+    }
+    rp_encoder.End();
+    wgpu::CommandBuffer command_buffer = command_encoder.Finish();
+
+    m_manager.wgpuDevice().GetQueue().Submit(1, &command_buffer);
   }
 }
 
@@ -1300,7 +1982,7 @@ namespace broccoli {
     // - https://ogldev.org/www/tutorial49/tutorial49.html
     // - https://www.youtube.com/watch?v=u0pk1LyLKYQ
 
-    for (size_t light_idx = 0; light_idx < light_vec.size(); light_idx++) {
+    for (int32_t light_idx = 0; light_idx < light_vec.size(); light_idx++) {
       const auto &light = light_vec[light_idx];
 
       // Getting perpendicular vectors efficiently:
@@ -1308,17 +1990,47 @@ namespace broccoli {
       glm::dmat3x3 light_view_matrix = glm::inverse(light_transform_matrix);
 
       // Rendering each cascade:
-      for (size_t i = 0; i < R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT; i++) {
+      // FIXME: we currently need to use a separate render pipeline for each mesh drawn because we need to re-upload the
+      // transforms uniform buffer in between. We also need a separate render pass before these to clear the shadow map
+      // so that each per-mesh-instance-list render-pass can load the depth texture.
+      // In past renderers, I have used a large uniform buffer containing all transform matrices coupled with a layer of
+      // indirection and dynamic offsets to circumvent this.
+      // Consider a similar solution.
+      for (int32_t i = 0; i < R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT; i++) {
         glm::mat4x4 cascade_projection_matrix = computeDirLightCascadeProjectionMatrix(camera, target, light_view_matrix, i);
         glm::mat4x4 proj_view_matrix = cascade_projection_matrix * glm::mat4x4{light_view_matrix};
-        const RenderShadowMaps &shadow_maps = m_manager.dirLightShadowMaps();
+        const RenderShadowMaps &shadow_maps = m_manager.getShadowMaps(LightType::Directional);
         drawShadowMap(proj_view_matrix, shadow_maps, light_idx, i, mesh_instance_lists);
       }
     }
   }
   void Renderer::drawShadowMap(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec) {
     const wgpu::Queue queue = m_manager.wgpuDevice().GetQueue();
+    clearShadowMap(shadow_maps, light_idx, cascade_idx);
     drawShadowMapMeshInstanceListVec(proj_view_matrix, shadow_maps, light_idx, cascade_idx, mesh_instance_list_vec);
+  }
+  void Renderer::clearShadowMap(const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx) {
+    const auto &view = shadow_maps.getWriteView(light_idx, cascade_idx);
+    auto queue = m_manager.wgpuDevice().GetQueue();
+    
+    wgpu::CommandEncoderDescriptor command_encoder_descriptor = {.label="Broccoli.Render.ShadowMap.CommandEncoder"};
+    wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
+    auto render_pass_depth_stencil_attachment = wgpu::RenderPassDepthStencilAttachment {
+      .view = view,
+      .depthLoadOp = wgpu::LoadOp::Clear,
+      .depthStoreOp = wgpu::StoreOp::Store,
+      .depthClearValue = 1.0,
+    };
+    auto render_pass_encoder_descriptor = wgpu::RenderPassDescriptor {
+      .label = "Broccoli.Render.ShadowMap.RenderPass",
+      .colorAttachmentCount = 0,
+      .depthStencilAttachment = &render_pass_depth_stencil_attachment,
+    };
+    wgpu::RenderPassEncoder rp_encoder = command_encoder.BeginRenderPass(&render_pass_encoder_descriptor);
+    rp_encoder.End();
+
+    wgpu::CommandBuffer command_buffer = command_encoder.Finish();
+    queue.Submit(1, &command_buffer);
   }
   void Renderer::drawShadowMapMeshInstanceListVec(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec) {
     for (size_t material_idx = 0; material_idx < mesh_instance_list_vec.size(); material_idx++) {
@@ -1356,9 +2068,8 @@ namespace broccoli {
     wgpu::CommandEncoder command_encoder = m_manager.wgpuDevice().CreateCommandEncoder(&command_encoder_descriptor);
     auto render_pass_depth_stencil_attachment = wgpu::RenderPassDepthStencilAttachment {
       .view = view,
-      .depthLoadOp = wgpu::LoadOp::Clear,
+      .depthLoadOp = wgpu::LoadOp::Load,
       .depthStoreOp = wgpu::StoreOp::Store,
-      .depthClearValue = 1.0,
     };
     auto render_pass_encoder_descriptor = wgpu::RenderPassDescriptor {
       .label = "Broccoli.Render.ShadowMap.RenderPass",
@@ -1374,6 +2085,7 @@ namespace broccoli {
       rp_encoder.DrawIndexed(mesh.idx_count, static_cast<uint32_t>(transform_list.size()));
     }
     rp_encoder.End();
+
     wgpu::CommandBuffer command_buffer = command_encoder.Finish();
     queue.Submit(1, &command_buffer);
   }
@@ -1429,8 +2141,8 @@ namespace broccoli {
     queue.Submit(1, &command_buffer);
   }
   glm::mat4x4 Renderer::computeDirLightCascadeProjectionMatrix(RenderCamera camera, RenderTarget target, glm::dmat3x3 inv_light_transform, size_t cascade_index) {
-    double min_distance = r3d_dir_light_shadow_cascade_min_distance(cascade_index);
-    double max_distance = r3d_dir_light_shadow_cascade_max_distance(cascade_index);
+    double min_distance = minDirLightCascadeDistance(cascade_index);
+    double max_distance = maxDirLightCascadeDistance(cascade_index);
     glm::dmat4x3 min_world_section = computeFrustumSection(camera, target, min_distance);
     glm::dmat4x3 max_world_section = computeFrustumSection(camera, target, max_distance);
     glm::dmat4x2 min_light_section = projectFrustumSection(min_world_section, inv_light_transform);
@@ -1454,7 +2166,7 @@ namespace broccoli {
     glm::dvec2 max_xy = max_proj_xy + glm::dvec2{padding};
     CHECK(proj_cascade_size.x <= max_cascade_size.x && proj_cascade_size.y <= max_cascade_size.y, "Bad max cascade size.");
     CHECK(max_xy - min_xy == max_cascade_size, "Expected orthographic projection to be fixed size.");
-    return glm::ortho(min_xy.x, max_xy.x, min_xy.y, max_xy.y);
+    return glm::ortho(min_xy.x, max_xy.x, min_xy.y, max_xy.y, -R3D_DIR_LIGHT_SHADOW_RADIUS, +R3D_DIR_LIGHT_SHADOW_RADIUS);
   }
   glm::dmat4x3 Renderer::computeFrustumSection(RenderCamera camera, RenderTarget target, double distance) {
     double aspect = target.size.x / static_cast<double>(target.size.y);
@@ -1843,7 +2555,7 @@ namespace broccoli {
   }
   RenderTextureView MaterialTableEntry::getColorOrTexture(RenderManager &rm, std::variant<double, RenderTexture> const &map) {
     if (std::holds_alternative<double>(map)) {
-      uint8_t val = glm::round(glm::clamp(std::get<double>(map), 0.0, 1.0) * 255.0);
+      uint8_t val = static_cast<uint8_t>(glm::round(glm::clamp(std::get<double>(map), 0.0, 1.0) * 255.0));
       glm::u16vec2 uv_fixpt{(val & 0x0F) >> 0, (val & 0xF0) >> 4};
       glm::dvec2 uv{uv_fixpt.x / 16.0, uv_fixpt.y / 16.0};
       return {rm.monochromePalette(), uv + glm::dvec2{0.5}, glm::dvec2{0.0}};

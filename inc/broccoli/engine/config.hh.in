@@ -1,0 +1,3 @@
+#pragma once
+
+#define BROCCOLI_DEBUG @BROCCOLI_DEBUG@

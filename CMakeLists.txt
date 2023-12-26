@@ -5,6 +5,21 @@ include(FetchContent)
 include("cmake/Strict.cmake")
 
 #
+# Configuration:
+#
+
+if (CMAKE_BUILD_TYPE MATCHES "[Dd]ebug")
+  set(BROCCOLI_DEBUG 1)
+else()
+  set(BROCCOLI_DEBUG 0)
+endif()
+
+configure_file(
+  "${CMAKE_SOURCE_DIR}/inc/broccoli/engine/config.hh.in"
+  "${CMAKE_SOURCE_DIR}/inc/broccoli/engine/config.hh"
+)
+
+#
 # Tooling:
 #
 

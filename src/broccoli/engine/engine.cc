@@ -123,6 +123,7 @@ namespace broccoli {
 }
 namespace broccoli {
   void Engine::run() {
+    glfwSetTime(0.0);
     updateActivityStack();
     draw();
     m_prev_update_timestamp_sec = glfwGetTime();

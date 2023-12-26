@@ -7,6 +7,7 @@ namespace broccoli {
   private:
     Geometry m_cube_geometry;
     Material m_cube_material;
+    int m_csm_saved_state = 0;
   public:
     SampleActivity1(broccoli::Engine &engine);
   private:

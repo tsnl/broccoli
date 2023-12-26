@@ -53,6 +53,55 @@ namespace broccoli {
 }
 
 //
+// IsZero, IsNonZero concepts:
+//
+
+namespace broccoli {
+  template <uint32_t v> concept IsPositiveU32 = v > 0;
+  template <uint32_t v> concept IsZeroU32 = v == 0;
+}
+
+//
+// EnumType, __EnumArray, EnumMap
+//
+
+namespace broccoli {
+  template <typename T>
+  concept EnumType = std::is_enum_v<T>;
+}
+namespace broccoli {
+  template <EnumType E>
+  constexpr size_t enum_count() {
+    return static_cast<size_t>(E::Metadata_Count);
+  }
+}
+namespace broccoli {
+  template <EnumType E, typename T>
+  class EnumMap: public std::array<T, enum_count<E>()> {
+  private:
+    using Base = std::array<T, enum_count<E>()>;
+  public:
+    using Base::Base;
+    using Base::data;
+    using Base::size;
+    using Base::operator[];
+  public:
+    T &operator[] (E key);
+    constexpr T const &operator[] (E key) const;
+  };
+}
+namespace broccoli {
+  template <EnumType E, typename T>
+  T &EnumMap<E, T>::operator[] (E key) {
+    return Base::operator[](static_cast<size_t>(key));
+  }
+  template <EnumType E, typename T>
+  constexpr T const &EnumMap<E, T>::operator[] (E key) const {
+    return Base::operator[](static_cast<size_t>(key));
+  }
+}
+
+//
 // String replacement:
 //
 

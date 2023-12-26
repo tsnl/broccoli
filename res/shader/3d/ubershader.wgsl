@@ -306,7 +306,7 @@ fn pbrMain(in: FragmentInput) -> vec4<f32> {
   var lo = vec3<f32>(0.0);
   var i: u32;
   for (i = 0u; i < u_light.directional_light_count; i += 1) {
-    let light_dir = u_light.directional_light_dir_array[i].xyz;
+    let light_dir = -u_light.directional_light_dir_array[i].xyz;
     let light_color = u_light.directional_light_color_array[i].xyz;
     lo += pbrDir(position, fresnel0, albedo, normal, metalness, roughness, light_dir, light_color, 1.0);
   }
