@@ -23,7 +23,7 @@ namespace broccoli {
     return engine.renderManager().createGeometryFactory().createCuboid(glm::dvec3{64.0, 1.0, 64.0});
   }
   Geometry SampleActivity2::buildTreeTrunkGeometry(broccoli::Engine &engine) {
-    return engine.renderManager().createGeometryFactory().createCuboid(glm::dvec3{2.0, 8.0, 2.0});
+    return engine.renderManager().createGeometryFactory().createCuboid(glm::dvec3{2.0, 6.0, 2.0});
   }
   Geometry SampleActivity2::buildTreeLeavesGeometry(broccoli::Engine &engine) {
     return engine.renderManager().createGeometryFactory().createCuboid(glm::dvec3{8.0});
@@ -99,7 +99,7 @@ namespace broccoli {
         auto sun_animation_duration_sec = 5.0;
         auto sun_animation_progress = std::fmod(engine().currUpdateTimestampSec(), sun_animation_duration_sec) / sun_animation_duration_sec;
         auto sun_angular_position = sun_animation_progress * 2 * M_PI;
-        auto sun_rake = 0.5;
+        auto sun_rake = 5.0;
         glm::dvec3 sun_dir = -glm::normalize(glm::dvec3{cos(sun_angular_position), sun_rake, sin(sun_angular_position)});
         float sun_intensity = USE_BLINN_PHONG ? 1.0f : 100.0f;
         renderer.addDirectionalLight(sun_dir, sun_intensity, glm::dvec3{0.96, 0.76, 0.39});
@@ -109,7 +109,7 @@ namespace broccoli {
           renderer.addPointLight(glm::dvec3{0.0, 10.0, 4.5}, 1.0f, glm::dvec3{0.96, 0.76, 0.39});
         }
         renderer.addMesh(m_floor_material, m_floor_geometry, glm::mat4x4{1.0});
-        renderer.addMesh(m_tree_trunk_material, m_tree_trunk_geometry, glm::translate(glm::dvec3{0.0, 1.0, 0.0}));
+        renderer.addMesh(m_tree_trunk_material, m_tree_trunk_geometry, glm::translate(glm::dvec3{0.0, 2.0, 0.0}));
         renderer.addMesh(m_tree_leaves_material, m_tree_leaves_geometry, glm::translate(glm::dvec3{0.0, 9.0, 0.0}));
       }
     );

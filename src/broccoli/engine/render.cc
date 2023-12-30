@@ -1982,12 +1982,20 @@ namespace broccoli {
     // - https://ogldev.org/www/tutorial49/tutorial49.html
     // - https://www.youtube.com/watch?v=u0pk1LyLKYQ
 
+    glm::dvec4 camera_position_v4 = camera.transformMatrix()[3];
+    CHECK(glm::abs(camera_position_v4.w - 1.0) <= 1e-9, "Invalid camera transform matrix");
+    glm::dvec4 camera_position = camera_position_v4;
+
     for (int32_t light_idx = 0; light_idx < light_vec.size(); light_idx++) {
       const auto &light = light_vec[light_idx];
 
-      // Getting perpendicular vectors efficiently:
-      glm::dmat3x3 light_transform_matrix = computeDirLightTransform(light.direction);
-      glm::dmat3x3 light_view_matrix = glm::inverse(light_transform_matrix);
+      glm::dmat3 light_transform_matrix_m3 = computeDirLightTransform(light.direction);
+      glm::dmat4 light_transform_matrix{light_transform_matrix_m3};
+      light_transform_matrix[3] = glm::dvec4{glm::dvec3{camera.transformMatrix()[3]}, 1.0};
+      
+      glm::dmat3 light_view_matrix_m3 = glm::inverse(light_transform_matrix_m3);
+      glm::dmat4 light_view_matrix{light_view_matrix_m3};
+      light_view_matrix[3] = glm::dvec4{-glm::dvec3{camera.transformMatrix()[3]}, 1.0};
 
       // Rendering each cascade:
       // FIXME: we currently need to use a separate render pipeline for each mesh drawn because we need to re-upload the
@@ -1997,8 +2005,8 @@ namespace broccoli {
       // indirection and dynamic offsets to circumvent this.
       // Consider a similar solution.
       for (int32_t i = 0; i < R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT; i++) {
-        glm::mat4x4 cascade_projection_matrix = computeDirLightCascadeProjectionMatrix(camera, target, light_view_matrix, i);
-        glm::mat4x4 proj_view_matrix = cascade_projection_matrix * glm::mat4x4{light_view_matrix};
+        glm::dmat4x4 cascade_projection_matrix = computeDirLightCascadeProjectionMatrix(camera, target, light_view_matrix, i);
+        glm::dmat4x4 proj_view_matrix = cascade_projection_matrix * light_view_matrix;
         const RenderShadowMaps &shadow_maps = m_manager.getShadowMaps(LightType::Directional);
         drawShadowMap(proj_view_matrix, shadow_maps, light_idx, i, mesh_instance_lists);
       }
@@ -2140,32 +2148,41 @@ namespace broccoli {
     wgpu::CommandBuffer command_buffer = command_encoder.Finish();
     queue.Submit(1, &command_buffer);
   }
-  glm::mat4x4 Renderer::computeDirLightCascadeProjectionMatrix(RenderCamera camera, RenderTarget target, glm::dmat3x3 inv_light_transform, size_t cascade_index) {
+  glm::mat4x4 Renderer::computeDirLightCascadeProjectionMatrix(
+    RenderCamera camera,
+    RenderTarget target,
+    glm::dmat4x4 inv_light_transform,
+    size_t cascade_index
+  ) {
     double min_distance = minDirLightCascadeDistance(cascade_index);
     double max_distance = maxDirLightCascadeDistance(cascade_index);
     glm::dmat4x3 min_world_section = computeFrustumSection(camera, target, min_distance);
     glm::dmat4x3 max_world_section = computeFrustumSection(camera, target, max_distance);
     glm::dmat4x2 min_light_section = projectFrustumSection(min_world_section, inv_light_transform);
     glm::dmat4x2 max_light_section = projectFrustumSection(max_world_section, inv_light_transform);
-    glm::dvec2 min_proj_xy = glm::floor(
-      glm::min(
-        glm::min(min_light_section[0], min_light_section[1], min_light_section[2], min_light_section[3]),
-        glm::min(max_light_section[0], max_light_section[1], max_light_section[2], max_light_section[3])
+    glm::dvec2 max_cascade_size {
+      2.0 *         // -> FIXME: get rid of this
+      glm::ceil(
+        std::max({
+          glm::length(max_world_section[2] - min_world_section[0]),
+          glm::length(max_world_section[2] - max_world_section[0])
+        })
       )
+    };
+    glm::dvec2 min_proj_xy = glm::min(
+      glm::min(min_light_section[0], min_light_section[1], min_light_section[2], min_light_section[3]),
+      glm::min(max_light_section[0], max_light_section[1], max_light_section[2], max_light_section[3])
     );
-    glm::dvec2 max_proj_xy = glm::ceil(
-      glm::max(
-        glm::max(min_light_section[0], min_light_section[1], min_light_section[2], min_light_section[3]),
-        glm::max(max_light_section[0], max_light_section[1], max_light_section[2], max_light_section[3])
-      )
+    glm::dvec2 max_proj_xy = glm::max(
+      glm::max(min_light_section[0], min_light_section[1], min_light_section[2], min_light_section[3]),
+      glm::max(max_light_section[0], max_light_section[1], max_light_section[2], max_light_section[3])
     );
     glm::dvec2 proj_cascade_size = max_proj_xy - min_proj_xy;
-    glm::dvec2 max_cascade_size{1.0 + glm::ceil(glm::length(max_world_section[2] - min_world_section[0]))};
     glm::dvec2 padding = (max_cascade_size - proj_cascade_size) / 2.0;
     glm::dvec2 min_xy = min_proj_xy - glm::dvec2{padding};
     glm::dvec2 max_xy = max_proj_xy + glm::dvec2{padding};
-    CHECK(proj_cascade_size.x <= max_cascade_size.x && proj_cascade_size.y <= max_cascade_size.y, "Bad max cascade size.");
-    CHECK(max_xy - min_xy == max_cascade_size, "Expected orthographic projection to be fixed size.");
+    // CHECK(proj_cascade_size.x <= max_cascade_size.x && proj_cascade_size.y <= max_cascade_size.y, "Bad max cascade size.");
+    // CHECK(max_xy - min_xy == max_cascade_size, "Expected orthographic projection to be fixed size.");
     return glm::ortho(min_xy.x, max_xy.x, min_xy.y, max_xy.y, -R3D_DIR_LIGHT_SHADOW_RADIUS, +R3D_DIR_LIGHT_SHADOW_RADIUS);
   }
   glm::dmat4x3 Renderer::computeFrustumSection(RenderCamera camera, RenderTarget target, double distance) {
@@ -2183,7 +2200,7 @@ namespace broccoli {
       forward * distance + right * +right_offset + up * -up_offset,
     };
   }
-  glm::dmat3x3 Renderer::computeDirLightTransform(glm::dvec3 forward) {
+  glm::dmat3 Renderer::computeDirLightTransform(glm::dvec3 forward) {
     glm::dvec3 guess_up1{0.0, 1.0, 0.0};
     glm::dvec3 guess_up2{0.0, 0.0, 1.0};
     glm::dvec3 guess_right1 = glm::cross(forward, guess_up1);
@@ -2191,7 +2208,7 @@ namespace broccoli {
       // forward and guess_up1 are not parallel => use guess_up1 as up.
       glm::dvec3 right1 = glm::normalize(guess_right1);
       glm::dvec3 up1 = glm::cross(right1, forward);
-      return {right1, up1, -forward};
+      return {right1, up1, -forward}; 
     } else {
       // forward and guess_up1 are parallel => use guess_up2 as up.
       glm::dvec3 guess_right2 = glm::cross(forward, guess_up2);

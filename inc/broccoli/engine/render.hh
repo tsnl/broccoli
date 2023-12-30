@@ -429,15 +429,15 @@ namespace broccoli {
   private:
     /// computeDirLightCascadeProjectionMatrix computes the orthographic projection matrix for drawing the cascaded 
     /// shadow map of this directional light at a specified cascade.
-    static glm::mat4x4 computeDirLightCascadeProjectionMatrix(RenderCamera camera, RenderTarget target, glm::dmat3x3 inv_light_transform, size_t cascade_index);
+    static glm::mat4x4 computeDirLightCascadeProjectionMatrix(RenderCamera camera, RenderTarget target, glm::dmat4x4 inv_light_transform, size_t cascade_index);
 
     /// computeFrustumSection returns a matrix where each column is a corner of a conic section of the view frustum.
     /// The order of each point in the column mimics traditional 2D coordinate systems, where 0 is top-right and we go
     /// through each quadrant counter-clockwise when viewed from the camera's perspective.
     static glm::dmat4x3 computeFrustumSection(RenderCamera camera, RenderTarget target, double distance);
 
-    /// computeDirLightTransform computes the linear transform of a directional light.
-    static glm::dmat3x3 computeDirLightTransform(glm::dvec3 forward);
+    /// computeDirLightTransform computes the linear (not affine) transform of a directional light.
+    static glm::dmat3 computeDirLightTransform(glm::dvec3 forward);
 
     /// projectFrustumSection applies a linear transform to each point in a conic section, then flattens along the Z
     /// axis.
