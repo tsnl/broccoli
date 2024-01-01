@@ -57,8 +57,10 @@ namespace broccoli {
   static const int32_t R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT_LG2 = 2;
   static const int32_t R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT = 1LLU << R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT_LG2;
   static const int32_t R3D_DIR_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2 = 10;
+  // static const std::array<double, R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT> R3D_DIR_LIGHT_SHADOW_CASCADE_MAX_DISTANCES = 
+  //   std::to_array({2.0, 16.0, 128.0, 1024.0});
   static const std::array<double, R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT> R3D_DIR_LIGHT_SHADOW_CASCADE_MAX_DISTANCES = 
-    std::to_array({2.0, 16.0, 128.0, 1024.0});
+    std::to_array({2.0, 4.0, 8.0, 16.0});
   static const double R3D_DIR_LIGHT_SHADOW_RADIUS = 1024.0;
 
   // Point lights:
@@ -131,14 +133,24 @@ namespace broccoli {
 
 namespace broccoli {
   struct LightUniform {
-    std::array<glm::vec4, R3D_DIRECTIONAL_LIGHT_CAPACITY> directional_light_dir_array;
-    std::array<glm::vec4, R3D_DIRECTIONAL_LIGHT_CAPACITY> directional_light_color_array;
-    std::array<glm::vec4, R3D_POINT_LIGHT_CAPACITY> point_light_pos_array;
-    std::array<glm::vec4, R3D_POINT_LIGHT_CAPACITY> point_light_color_array;
-    uint32_t directional_light_count;
-    uint32_t point_light_count;
-    float ambient_glow;
-    std::array<uint32_t, 93> rsv;
+  public:
+    struct Core {
+      std::array<glm::vec4, R3D_DIRECTIONAL_LIGHT_CAPACITY> directional_light_dir_array;
+      std::array<glm::vec4, R3D_DIRECTIONAL_LIGHT_CAPACITY> directional_light_color_array;
+      std::array<glm::vec4, R3D_POINT_LIGHT_CAPACITY> point_light_pos_array;
+      std::array<glm::vec4, R3D_POINT_LIGHT_CAPACITY> point_light_color_array;
+      uint32_t directional_light_count;
+      uint32_t point_light_count;
+      float ambient_glow;
+      uint32_t _rsv = 0;
+    };
+    struct Shadow {
+      std::array<std::array<glm::mat4, R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT>, R3D_DIRECTIONAL_LIGHT_CAPACITY> dir_csm_proj_view_mats;
+      std::array<std::array<Rectf, R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT>, R3D_DIRECTIONAL_LIGHT_CAPACITY> dir_csm_xy_bounds;
+    };
+  public:
+    Core core;
+    Shadow shadow;
   };
   struct CameraUniform {
     glm::mat4x4 view_matrix;
@@ -184,7 +196,7 @@ namespace broccoli {
     glm::i32vec2 rect_size;
     glm::i32vec2 rect_center;
   };
-  static_assert(sizeof(LightUniform) == 1024, "invalid LightUniform size");
+  static_assert(sizeof(LightUniform) == 1936, "invalid LightUniform size");
   static_assert(sizeof(CameraUniform) == 128, "invalid CameraUniform size");
   static_assert(sizeof(MaterialUniform) == 128, "invalid MaterialUniform size");
 }
@@ -451,6 +463,22 @@ namespace broccoli {
       m_read_views.push_back(m_texture.CreateView(&read_view_descriptor));
     }
 
+    std::string read_array_view_label = name + ".ReadArrayView";
+    wgpu::TextureViewDescriptor read_array_view_descriptor = {
+      .label = read_array_view_label.c_str(),
+      .format = R3D_CSM_TEXTURE_FORMAT,
+      .dimension = wgpu::TextureViewDimension::e2DArray,
+      .baseArrayLayer = 0,
+      .arrayLayerCount = static_cast<uint32_t>(shadow_map_count),
+    };
+    m_read_array_view = m_texture.CreateView(&read_array_view_descriptor);
+    
+    std::string read_array_sampler_label = name + ".ReadArraySampler";
+    wgpu::SamplerDescriptor read_array_sampler_descriptor = {
+      .label = read_array_sampler_label.c_str()
+    };
+    m_read_array_sampler = dev.CreateSampler(&read_array_sampler_descriptor);
+
     m_shadow_map_ubo_vec.reserve(shadow_map_count);
     for (int32_t i = 0; i < shadow_map_count; i++) {
       std::string buffer_label = name + ".ShadowMapUbo.Buffer";
@@ -493,7 +521,13 @@ namespace broccoli {
   const wgpu::TextureView &RenderShadowMaps::getReadView(int32_t light_idx, int32_t cascade_idx) const {
     return m_read_views[(light_idx << m_cascades_per_light_lg2) + cascade_idx];
   }
-  const RenderShadowMaps::ShadowMapUbo &RenderShadowMaps::getShadowMapUbo(int32_t light_idx, int32_t cascade_idx) const {
+  const wgpu::TextureView &RenderShadowMaps::getReadArrayView() const {
+    return m_read_array_view;
+  }
+  const wgpu::Sampler &RenderShadowMaps::getReadArraySampler() const {
+    return m_read_array_sampler;
+  }
+  RenderShadowMaps::ShadowMapUbo &RenderShadowMaps::getShadowMapUbo(int32_t light_idx, int32_t cascade_idx) {
     return m_shadow_map_ubo_vec[(light_idx << m_cascades_per_light_lg2) + cascade_idx];
   }
 }
@@ -523,15 +557,15 @@ namespace broccoli {
     ),
     m_framebuffer_size(0)
   {
-    initFinalShaderModules();
-    initShadowShaderModule();
-    initOverlayShaderModules();
     initBuffers();
+    initShadowShaderModule();
+    initShadowRenderPipeline();
+    initShadowMaps();
+    initFinalShaderModules();
     initFinalPbrRenderPipeline();
     initFinalBlinnPhongRenderPipeline();
-    initShadowRenderPipeline();
+    initOverlayShaderModules();
     initOverlayRenderPipeline();
-    initShadowMaps();
     resize(framebuffer_size);
   }
 
@@ -572,6 +606,8 @@ namespace broccoli {
         {"p_INSTANCE_COUNT", std::to_string(static_cast<uint32_t>(R3D_INSTANCE_CAPACITY))},
         {"p_DIRECTIONAL_LIGHT_COUNT", std::to_string(static_cast<uint32_t>(R3D_DIRECTIONAL_LIGHT_CAPACITY))},
         {"p_POINT_LIGHT_COUNT", std::to_string(static_cast<uint32_t>(R3D_POINT_LIGHT_CAPACITY))},
+        {"p_DIR_LIGHT_CASCADE_COUNT", std::to_string(static_cast<uint32_t>(R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT))},
+        {"p_DIR_LIGHT_SHADOW_RADIUS", std::to_string(static_cast<float>(R3D_DIR_LIGHT_SHADOW_RADIUS))},
       }
     );
     m_wgpu_blinn_phong_shader_module = initShaderModuleVariant(
@@ -582,6 +618,8 @@ namespace broccoli {
         {"p_INSTANCE_COUNT", std::to_string(static_cast<uint32_t>(R3D_INSTANCE_CAPACITY))},
         {"p_DIRECTIONAL_LIGHT_COUNT", std::to_string(static_cast<uint32_t>(R3D_DIRECTIONAL_LIGHT_CAPACITY))},
         {"p_POINT_LIGHT_COUNT", std::to_string(static_cast<uint32_t>(R3D_POINT_LIGHT_CAPACITY))},
+        {"p_DIR_LIGHT_CASCADE_COUNT", std::to_string(static_cast<uint32_t>(R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT))},
+        {"p_DIR_LIGHT_SHADOW_RADIUS", std::to_string(static_cast<float>(R3D_DIR_LIGHT_SHADOW_RADIUS))},
       }
     );
   }
@@ -904,6 +942,20 @@ namespace broccoli {
             .minBindingSize = sizeof(glm::mat4x4) * R3D_INSTANCE_CAPACITY,
           },
         },
+        wgpu::BindGroupLayoutEntry {
+          .binding = 3,
+          .visibility = wgpu::ShaderStage::Fragment,
+          .texture = {
+            .sampleType = wgpu::TextureSampleType::UnfilterableFloat,
+            .viewDimension = wgpu::TextureViewDimension::e2DArray,
+            .multisampled = false,
+          },
+        },
+        wgpu::BindGroupLayoutEntry {
+          .binding = 4,
+          .visibility = wgpu::ShaderStage::Fragment,
+          .sampler = {.type = wgpu::SamplerBindingType::NonFiltering},
+        },
       });
       wgpu::BindGroupLayoutDescriptor descriptor = {
         .label = "Broccoli.Render.Final.BindGroup0Layout",
@@ -1082,6 +1134,14 @@ namespace broccoli {
           .buffer = m_wgpu_transform_uniform_buffer,
           .size = sizeof(glm::mat4x4) * R3D_INSTANCE_CAPACITY,
         },
+        wgpu::BindGroupEntry {
+          .binding = 3,
+          .textureView = m_light_shadow_maps[LightType::Directional].getReadArrayView(),
+        },
+        wgpu::BindGroupEntry {
+          .binding = 4,
+          .sampler = m_light_shadow_maps[LightType::Directional].getReadArraySampler(),
+        }
       });
       wgpu::BindGroupDescriptor bind_group_descriptor = {
         .label = "Broccoli.Render.Final.BindGroup0",
@@ -1960,8 +2020,8 @@ namespace broccoli {
     CHECK(directional_light_vec.size() < R3D_DIRECTIONAL_LIGHT_CAPACITY, "Direction light overflow");
     CHECK(point_light_vec.size() < R3D_POINT_LIGHT_CAPACITY, "Point light overflow");
     
-    // Uploading the LightUniform UBO
-    LightUniform buf = {
+    // Uploading the LightUniform::Core UBO
+    LightUniform::Core buf = {
       .directional_light_count = static_cast<uint32_t>(directional_light_vec.size()),
       .point_light_count = static_cast<uint32_t>(point_light_vec.size()),
       .ambient_glow = R3D_DEFAULT_AMBIENT_GLOW,
@@ -1975,7 +2035,7 @@ namespace broccoli {
       buf.point_light_pos_array[i] = glm::vec4{point_light_vec[i].position, 0.0f};
     }
     auto queue = m_manager.wgpuDevice().GetQueue();
-    queue.WriteBuffer(m_manager.wgpuLightUniformBuffer(), 0, &buf, sizeof(LightUniform));
+    queue.WriteBuffer(m_manager.wgpuLightUniformBuffer(), offsetof(LightUniform, core), &buf, sizeof(LightUniform::Core));
   }
   void Renderer::drawShadowMaps(RenderCamera camera, RenderTarget target, std::vector<DirectionalLight> const &light_vec, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_lists) {
     // Resources on cascaded shadow maps:
@@ -1986,12 +2046,14 @@ namespace broccoli {
     CHECK(glm::abs(camera_position_v4.w - 1.0) <= 1e-9, "Invalid camera transform matrix");
     glm::dvec4 camera_position = camera_position_v4;
 
+    LightUniform::Shadow shadow_buf;
+
     for (int32_t light_idx = 0; light_idx < light_vec.size(); light_idx++) {
       const auto &light = light_vec[light_idx];
 
       glm::dmat3 light_transform_matrix_m3 = computeDirLightTransform(light.direction);
       glm::dmat4 light_transform_matrix{light_transform_matrix_m3};
-      light_transform_matrix[3] = glm::dvec4{glm::dvec3{camera.transformMatrix()[3]}, 1.0};
+      light_transform_matrix[3] = glm::dvec4{+glm::dvec3{camera.transformMatrix()[3]}, 1.0};
       
       glm::dmat3 light_view_matrix_m3 = glm::inverse(light_transform_matrix_m3);
       glm::dmat4 light_view_matrix{light_view_matrix_m3};
@@ -2005,19 +2067,29 @@ namespace broccoli {
       // indirection and dynamic offsets to circumvent this.
       // Consider a similar solution.
       for (int32_t i = 0; i < R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT; i++) {
-        glm::dmat4x4 cascade_projection_matrix = computeDirLightCascadeProjectionMatrix(camera, target, light_view_matrix, i);
-        glm::dmat4x4 proj_view_matrix = cascade_projection_matrix * light_view_matrix;
-        const RenderShadowMaps &shadow_maps = m_manager.getShadowMaps(LightType::Directional);
+        auto [cascade_projection_matrix, rect] = computeDirLightCascadeProjectionMatrix(camera, target, light_view_matrix, i);
+        glm::dmat4 proj_view_matrix = cascade_projection_matrix * light_view_matrix;
+        RenderShadowMaps &shadow_maps = m_manager.getShadowMaps(LightType::Directional);
         drawShadowMap(proj_view_matrix, shadow_maps, light_idx, i, mesh_instance_lists);
+        shadow_buf.dir_csm_proj_view_mats[light_idx][i] = proj_view_matrix;
+        shadow_buf.dir_csm_xy_bounds[light_idx][i] = rect;
       }
     }
+
+    // Uploading uniform:
+    m_manager.wgpuDevice().GetQueue().WriteBuffer(
+      m_manager.wgpuLightUniformBuffer(),
+      offsetof(LightUniform, shadow),
+      &shadow_buf,
+      sizeof(LightUniform::Shadow)
+    );
   }
-  void Renderer::drawShadowMap(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec) {
+  void Renderer::drawShadowMap(glm::mat4x4 proj_view_matrix, RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec) {
     const wgpu::Queue queue = m_manager.wgpuDevice().GetQueue();
     clearShadowMap(shadow_maps, light_idx, cascade_idx);
     drawShadowMapMeshInstanceListVec(proj_view_matrix, shadow_maps, light_idx, cascade_idx, mesh_instance_list_vec);
   }
-  void Renderer::clearShadowMap(const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx) {
+  void Renderer::clearShadowMap(RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx) {
     const auto &view = shadow_maps.getWriteView(light_idx, cascade_idx);
     auto queue = m_manager.wgpuDevice().GetQueue();
     
@@ -2040,7 +2112,7 @@ namespace broccoli {
     wgpu::CommandBuffer command_buffer = command_encoder.Finish();
     queue.Submit(1, &command_buffer);
   }
-  void Renderer::drawShadowMapMeshInstanceListVec(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec) {
+  void Renderer::drawShadowMapMeshInstanceListVec(glm::mat4x4 proj_view_matrix, RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec) {
     for (size_t material_idx = 0; material_idx < mesh_instance_list_vec.size(); material_idx++) {
       Material material{material_idx};
       if (m_manager.getMaterialInfo(material).isShadowCasting()) {
@@ -2050,7 +2122,7 @@ namespace broccoli {
       }
     }
   }
-  void Renderer::drawShadowMapMeshInstanceList(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const MeshInstanceList &mesh_instance_list) {
+  void Renderer::drawShadowMapMeshInstanceList(glm::mat4x4 proj_view_matrix, RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const MeshInstanceList &mesh_instance_list) {
     if (mesh_instance_list.instance_list.empty()) {
       return;
     }
@@ -2058,7 +2130,7 @@ namespace broccoli {
     const auto &render_pipeline = m_manager.getShadowRenderPipeline();
     const auto &mesh = mesh_instance_list.mesh;
     const auto &transform_list = mesh_instance_list.instance_list;
-    const auto &ubo = shadow_maps.getShadowMapUbo(light_idx, cascade_idx);
+    auto &ubo = shadow_maps.getShadowMapUbo(light_idx, cascade_idx);
     const auto &view = shadow_maps.getWriteView(light_idx, cascade_idx);
     auto queue = m_manager.wgpuDevice().GetQueue();
     
@@ -2070,6 +2142,7 @@ namespace broccoli {
     ShadowUniform freshest_ubo = {.proj_view_matrix=proj_view_matrix};
     if (freshest_ubo != ubo.state) {
       queue.WriteBuffer(ubo.buffer, 0, &freshest_ubo, sizeof(freshest_ubo));
+      ubo.state = freshest_ubo;
     }
 
     wgpu::CommandEncoderDescriptor command_encoder_descriptor = {.label="Broccoli.Render.ShadowMap.CommandEncoder"};
@@ -2148,7 +2221,7 @@ namespace broccoli {
     wgpu::CommandBuffer command_buffer = command_encoder.Finish();
     queue.Submit(1, &command_buffer);
   }
-  glm::mat4x4 Renderer::computeDirLightCascadeProjectionMatrix(
+  std::tuple<glm::dmat4, Rectf> Renderer::computeDirLightCascadeProjectionMatrix(
     RenderCamera camera,
     RenderTarget target,
     glm::dmat4x4 inv_light_transform,
@@ -2161,7 +2234,6 @@ namespace broccoli {
     glm::dmat4x2 min_light_section = projectFrustumSection(min_world_section, inv_light_transform);
     glm::dmat4x2 max_light_section = projectFrustumSection(max_world_section, inv_light_transform);
     glm::dvec2 max_cascade_size {
-      2.0 *         // -> FIXME: get rid of this
       glm::ceil(
         std::max({
           glm::length(max_world_section[2] - min_world_section[0]),
@@ -2181,9 +2253,14 @@ namespace broccoli {
     glm::dvec2 padding = (max_cascade_size - proj_cascade_size) / 2.0;
     glm::dvec2 min_xy = min_proj_xy - glm::dvec2{padding};
     glm::dvec2 max_xy = max_proj_xy + glm::dvec2{padding};
-    // CHECK(proj_cascade_size.x <= max_cascade_size.x && proj_cascade_size.y <= max_cascade_size.y, "Bad max cascade size.");
+    CHECK(proj_cascade_size.x <= max_cascade_size.x && proj_cascade_size.y <= max_cascade_size.y, "Bad max cascade size.");
     // CHECK(max_xy - min_xy == max_cascade_size, "Expected orthographic projection to be fixed size.");
-    return glm::ortho(min_xy.x, max_xy.x, min_xy.y, max_xy.y, -R3D_DIR_LIGHT_SHADOW_RADIUS, +R3D_DIR_LIGHT_SHADOW_RADIUS);
+    // FIXME: replace R3D_DIR_LIGHT_SHADOW_RADIUS with the section distance.
+    // FIXME: will probably need to offset camera position along camera direction to match view frustum.
+    return {
+      glm::ortho(min_xy.x, max_xy.x, min_xy.y, max_xy.y, -R3D_DIR_LIGHT_SHADOW_RADIUS, +R3D_DIR_LIGHT_SHADOW_RADIUS),
+      {min_xy, max_xy},
+    };
   }
   glm::dmat4x3 Renderer::computeFrustumSection(RenderCamera camera, RenderTarget target, double distance) {
     double aspect = target.size.x / static_cast<double>(target.size.y);

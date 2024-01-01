@@ -19,7 +19,7 @@ namespace broccoli {
   template <SubpixelType Subpixel>
   class GenericBitmap {
   public:
-    struct Rect { glm::i32vec2 min_xy; glm::i32vec2 max_xy; };
+    using Rect = broccoli::Rect<int32_t>;
   private:
     void *m_pixels;
     glm::i32vec3 m_dim;

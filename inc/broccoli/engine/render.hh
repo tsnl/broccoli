@@ -4,6 +4,7 @@
 #include <vector>
 #include <optional>
 #include <variant>
+#include <utility>
 #include <cstdint>
 #include <cstddef>
 
@@ -205,6 +206,8 @@ namespace broccoli {
     std::vector<wgpu::TextureView> m_write_views = {};
     std::vector<wgpu::TextureView> m_read_views = {};
     std::vector<ShadowMapUbo> m_shadow_map_ubo_vec = {};
+    wgpu::TextureView m_read_array_view = nullptr;
+    wgpu::Sampler m_read_array_sampler = nullptr;
     int32_t m_light_count_lg2 = 0;
     int32_t m_cascades_per_light_lg2 = 0;
     int32_t m_size_lg2 = 0;
@@ -216,7 +219,9 @@ namespace broccoli {
     wgpu::Texture texture() const;
     const wgpu::TextureView &getWriteView(int32_t light_idx, int32_t cascade_idx) const;
     const wgpu::TextureView &getReadView(int32_t light_idx, int32_t cascade_idx) const;
-    const ShadowMapUbo &getShadowMapUbo(int32_t light_idx, int32_t cascade_idx) const;
+    const wgpu::TextureView &getReadArrayView() const;
+    const wgpu::Sampler &getReadArraySampler() const;
+    ShadowMapUbo &getShadowMapUbo(int32_t light_idx, int32_t cascade_idx);
   };
 }
 
@@ -419,17 +424,17 @@ namespace broccoli {
     void sendCameraData(RenderCamera camera, RenderTarget target);
     void sendLightData(std::vector<DirectionalLight> const &direction_light_vec, std::vector<PointLight> const &point_light_vec);
     void drawShadowMaps(RenderCamera camera, RenderTarget target, std::vector<DirectionalLight> const &light_vec, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_lists);
-    void drawShadowMap(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_lists);
-    void clearShadowMap(const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx);
-    void drawShadowMapMeshInstanceListVec(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec);
-    void drawShadowMapMeshInstanceList(glm::mat4x4 proj_view_matrix, const RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const MeshInstanceList &mesh_instance_list);
+    void drawShadowMap(glm::mat4x4 proj_view_matrix, RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_lists);
+    void clearShadowMap(RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx);
+    void drawShadowMapMeshInstanceListVec(glm::mat4x4 proj_view_matrix, RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const std::vector<std::vector<MeshInstanceList>> &mesh_instance_list_vec);
+    void drawShadowMapMeshInstanceList(glm::mat4x4 proj_view_matrix, RenderShadowMaps &shadow_maps, int32_t light_idx, int32_t cascade_idx, const MeshInstanceList &mesh_instance_list);
     void drawMeshInstanceListVec(std::vector<std::vector<MeshInstanceList>> mesh_instance_list_vec);
     void drawMeshInstanceList(Material material, const MeshInstanceList &mesh_instance_list);
 
   private:
     /// computeDirLightCascadeProjectionMatrix computes the orthographic projection matrix for drawing the cascaded 
     /// shadow map of this directional light at a specified cascade.
-    static glm::mat4x4 computeDirLightCascadeProjectionMatrix(RenderCamera camera, RenderTarget target, glm::dmat4x4 inv_light_transform, size_t cascade_index);
+    static std::tuple<glm::dmat4, Rectf> computeDirLightCascadeProjectionMatrix(RenderCamera camera, RenderTarget target, glm::dmat4x4 inv_light_transform, size_t cascade_index);
 
     /// computeFrustumSection returns a matrix where each column is a corner of a conic section of the view frustum.
     /// The order of each point in the column mimics traditional 2D coordinate systems, where 0 is top-right and we go
