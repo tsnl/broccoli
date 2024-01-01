@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <cmath>
 
+#include <glm/glm.hpp>
+
 #include "fmt/std.h"
 
 //
@@ -184,4 +186,17 @@ namespace broccoli {
     return m_hash;
   }
   using Fnv1aHasher = Hasher<Fnv1aHasherBackend>;
+}
+
+//
+// Math types:
+//
+
+namespace broccoli {
+  template <StandardLayout T>
+  struct Rect {
+    glm::tvec2<T> min_xy;
+    glm::tvec2<T> max_xy;
+  };
+  using Rectf = Rect<float>;
 }

@@ -3,10 +3,16 @@
 // - p_INSTANCE_COUNT: u32 => the maximum instance count drawn
 // - p_DIRECTIONAL_LIGHT_COUNT: u32 => the maximum directional lights drawn
 // - p_POINT_LIGHT_COUNT: u32 => the maximum point lights drawn
+// - p_DIR_LIGHT_CASCADE_COUNT: u32 => the number of cascades for cascaded shadow maps for all directional lights
+// - p_DIR_LIGHT_SHADOW_RADIUS: f32 => what '1.0' in shadow map distance corresponds to
 
 const PI: f32 = 3.14159265;
 
-struct LightUniform {
+struct Rectf {
+  min: vec2f,
+  max: vec2f
+}
+struct LightUniformCore {
   directional_light_dir_array: array<vec4<f32>, p_DIRECTIONAL_LIGHT_COUNT>,
   directional_light_color_array: array<vec4<f32>, p_DIRECTIONAL_LIGHT_COUNT>,
   point_light_pos_array: array<vec4<f32>, p_POINT_LIGHT_COUNT>,
@@ -14,8 +20,16 @@ struct LightUniform {
   directional_light_count: u32,
   point_light_count: u32,
   ambient_glow: f32,
-  rsv0: u32,
-  rsv1: array<vec4<u32>, 23>,
+  _rsv0: u32,
+}
+struct LightUniformShadow {
+  dir_csm_proj_view_mats: array<array<mat4x4f, p_DIR_LIGHT_CASCADE_COUNT>, p_DIRECTIONAL_LIGHT_COUNT>,
+  dir_csm_xy_bounds: array<array<Rectf, p_DIR_LIGHT_CASCADE_COUNT>, p_DIRECTIONAL_LIGHT_COUNT>,
+}
+struct LightUniform {
+  core: LightUniformCore,
+  _rsv1: array<vec4<u32>, 12>,
+  shadow: LightUniformShadow,
 }
 struct CameraUniform {
   view_matrix: mat4x4<f32>,
@@ -77,6 +91,8 @@ struct FragmentInput {
 @group(0) @binding(0) var<uniform> u_camera: CameraUniform;
 @group(0) @binding(1) var<uniform> u_light: LightUniform;
 @group(0) @binding(2) var<uniform> u_model_mats: array<mat4x4<f32>, p_INSTANCE_COUNT>;
+@group(0) @binding(3) var dir_light_csm_texture_array: texture_2d_array<f32>;
+@group(0) @binding(4) var dir_light_csm_texture_sampler: sampler;
 
 @group(1) @binding(0) var<uniform> u_material: MaterialUniform;
 @group(1) @binding(1) var albedo_texture: texture_2d<f32>;
@@ -205,18 +221,18 @@ fn blinnPhongMain(in: FragmentInput) -> vec4<f32> {
   let albedo = textureSampleLevel(albedo_texture, albedo_texture_sampler, albedoUv(in.uv), 0.0).xyz;
   let normal = computeNormal(in.world_normal.xyz, in.world_tangent.xyz, in.world_bitangent.xyz, in.uv);
   let position = in.world_position.xyz;
-  var result = blinnPhongAmbient(albedo, u_light.ambient_glow).xyz;
-  for (var i = 0u; i < u_light.directional_light_count; i += 1) {
-    let light_dir = u_light.directional_light_dir_array[i].xyz;
-    let light_color = u_light.directional_light_color_array[i].xyz;
+  var result = blinnPhongAmbient(albedo, u_light.core.ambient_glow).xyz;
+  for (var i = 0u; i < u_light.core.directional_light_count; i += 1) {
+    let light_dir = u_light.core.directional_light_dir_array[i].xyz;
+    let light_color = u_light.core.directional_light_color_array[i].xyz;
     result = clamp(
       result + blinnPhongDir(albedo, normal, position, light_dir, light_color),
       vec3(0.0), vec3(1.0)
     );
   }
-  for (var i = 0u; i < u_light.point_light_count; i += 1) {
-    let light_pos = u_light.point_light_pos_array[i].xyz;
-    let light_color = u_light.point_light_color_array[i].xyz;
+  for (var i = 0u; i < u_light.core.point_light_count; i += 1) {
+    let light_pos = u_light.core.point_light_pos_array[i].xyz;
+    let light_color = u_light.core.point_light_color_array[i].xyz;
     result = clamp(
       result + blinnPhongPt(albedo, normal, position, light_pos, light_color),
       vec3(0.0), vec3(1.0)
@@ -305,17 +321,21 @@ fn pbrMain(in: FragmentInput) -> vec4<f32> {
 
   var lo = vec3<f32>(0.0);
   var i: u32;
-  for (i = 0u; i < u_light.directional_light_count; i += 1) {
-    let light_dir = -u_light.directional_light_dir_array[i].xyz;
-    let light_color = u_light.directional_light_color_array[i].xyz;
+  for (i = 0u; i < u_light.core.directional_light_count; i++) {
+    let is_lit = dirLightShadowMapSample(i, position);
+    if (is_lit == 0) {
+      continue;
+    }
+    let light_dir = -u_light.core.directional_light_dir_array[i].xyz;
+    let light_color = u_light.core.directional_light_color_array[i].xyz;
     lo += pbrDir(position, fresnel0, albedo, normal, metalness, roughness, light_dir, light_color, 1.0);
   }
-  for (i = 0u; i < u_light.point_light_count; i++) {
-    let light_pos = u_light.point_light_pos_array[i].xyz;
-    let light_color = u_light.point_light_color_array[i].xyz;
+  for (i = 0u; i < u_light.core.point_light_count; i++) {
+    let light_pos = u_light.core.point_light_pos_array[i].xyz;
+    let light_color = u_light.core.point_light_color_array[i].xyz;
     lo += pbrPt(position, fresnel0, albedo, normal, metalness, roughness, light_pos, light_color);
   }
-  let ambient = vec3<f32>(u_light.ambient_glow) * albedo * pbr_ao;
+  let ambient = vec3<f32>(u_light.core.ambient_glow) * albedo * pbr_ao;
   let color_hdr = ambient + lo;
   return vec4<f32>(naughtyDogTonemap(color_hdr.xyz, exposure_bias), 1.0f);
 }
@@ -412,4 +432,38 @@ fn naughtyDogTonemapHelper(x: vec3<f32>) -> vec3<f32> {
   const e = 0.02f;
   const f = 0.30f;
   return (x * (a * x + c * b) + d * e) / (x * (a * x + b) + d * f) - (e / f);
+}
+
+/// returns '1' if fragment is lit by this light, else '0'.
+fn dirLightShadowMapSample(light_idx: u32, frag_world_pos: vec3f) -> u32 {
+  let frag_world_pos_v4 = vec4f(frag_world_pos, 1.0);
+  let array_offset = light_idx * p_DIR_LIGHT_CASCADE_COUNT;
+  for (var i = 0u; i < p_DIR_LIGHT_CASCADE_COUNT; i++) {
+    let pv = u_light.shadow.dir_csm_proj_view_mats[light_idx][i];
+    let xy_v4 = pv * frag_world_pos_v4;
+    let xy_distance = xy_v4.w;
+    let xy = vec2f(xy_v4.x / xy_v4.w, xy_v4.y / xy_v4.w);
+    let bounds = u_light.shadow.dir_csm_xy_bounds[light_idx][i];
+    let x_in = bounds.min.x <= xy.x && xy.x <= bounds.max.x;
+    let y_in = bounds.min.y <= xy.y && xy.y <= bounds.max.y;
+    if (x_in && y_in) {
+      let x_uv = (xy.x - bounds.min.x) / (bounds.max.x - bounds.min.x);
+      let y_uv_flipped = (xy.y - bounds.min.y) / (bounds.max.y - bounds.min.y);
+      let y_uv = 1.0 - y_uv_flipped;
+      let sample_raw_v4 = textureSampleLevel(
+        dir_light_csm_texture_array, 
+        dir_light_csm_texture_sampler, 
+        vec2f(x_uv, y_uv),
+        array_offset + i,
+        0.0
+      );
+      let sample_raw = sample_raw_v4.r;
+      if (sample_raw * p_DIR_LIGHT_SHADOW_RADIUS <= xy_distance) {
+        return 1;
+      } else {
+        return 0;
+      }
+    }
+  }
+  return 1;
 }
