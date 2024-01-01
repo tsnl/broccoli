@@ -57,8 +57,10 @@ namespace broccoli {
   static const int32_t R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT_LG2 = 2;
   static const int32_t R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT = 1LLU << R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT_LG2;
   static const int32_t R3D_DIR_LIGHT_SHADOW_CASCADE_MAP_RESOLUTION_LG2 = 10;
+  // static const std::array<double, R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT> R3D_DIR_LIGHT_SHADOW_CASCADE_MAX_DISTANCES = 
+  //   std::to_array({2.0, 16.0, 128.0, 1024.0});
   static const std::array<double, R3D_DIR_LIGHT_SHADOW_CASCADE_COUNT> R3D_DIR_LIGHT_SHADOW_CASCADE_MAX_DISTANCES = 
-    std::to_array({2.0, 16.0, 128.0, 1024.0});
+    std::to_array({2.0, 4.0, 8.0, 32.0});
   static const double R3D_DIR_LIGHT_SHADOW_RADIUS = 1024.0;
 
   // Point lights:

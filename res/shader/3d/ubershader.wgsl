@@ -326,6 +326,21 @@ fn pbrMain(in: FragmentInput) -> vec4<f32> {
     if (is_lit == 0) {
       continue;
     }
+    
+    // DEBUG:
+    if (is_lit == 4) {
+      return vec4(1.0, 0.0, 0.0, 1.0);
+    }
+    if (is_lit == 5) {
+      return vec4(0.0, 1.0, 0.0, 1.0);
+    }
+    if (is_lit == 6) {
+      return vec4(0.0, 0.0, 1.0, 1.0);
+    }
+    if (is_lit == 7) {
+      return vec4(1.0, 0.0, 1.0, 1.0);
+    }
+
     let light_dir = -u_light.core.directional_light_dir_array[i].xyz;
     let light_color = u_light.core.directional_light_color_array[i].xyz;
     lo += pbrDir(position, fresnel0, albedo, normal, metalness, roughness, light_dir, light_color, 1.0);
@@ -447,6 +462,9 @@ fn dirLightShadowMapSample(light_idx: u32, frag_world_pos: vec3f) -> u32 {
     let x_in = bounds.min.x <= xy.x && xy.x <= bounds.max.x;
     let y_in = bounds.min.y <= xy.y && xy.y <= bounds.max.y;
     if (x_in && y_in) {
+      // DEBUG:
+      return 4 + i;
+
       let x_uv = (xy.x - bounds.min.x) / (bounds.max.x - bounds.min.x);
       let y_uv_flipped = (xy.y - bounds.min.y) / (bounds.max.y - bounds.min.y);
       let y_uv = 1.0 - y_uv_flipped;
