@@ -28,7 +28,6 @@ struct LightUniformShadow {
 }
 struct LightUniform {
   core: LightUniformCore,
-  _rsv1: array<vec4<u32>, 12>,
   shadow: LightUniformShadow,
 }
 struct CameraUniform {
@@ -322,25 +321,14 @@ fn pbrMain(in: FragmentInput) -> vec4<f32> {
   var lo = vec3<f32>(0.0);
   var i: u32;
   for (i = 0u; i < u_light.core.directional_light_count; i++) {
-    let is_lit = dirLightShadowMapSample(i, position);
-    if (is_lit == 0) {
-      continue;
-    }
-    
-    // DEBUG:
-    if (is_lit == 4) {
-      return vec4(1.0, 0.0, 0.0, 1.0);
-    }
-    if (is_lit == 5) {
-      return vec4(0.0, 1.0, 0.0, 1.0);
-    }
-    if (is_lit == 6) {
-      return vec4(0.0, 0.0, 1.0, 1.0);
-    }
-    if (is_lit == 7) {
-      return vec4(1.0, 0.0, 1.0, 1.0);
-    }
+    // let is_lit = dirLightShadowMapSample(i, position);
+    // if (is_lit == 0) {
+    //   continue;
+    // }
 
+    // DEBUG:
+    return dirLightShadowMapSample(i, position);
+    
     let light_dir = -u_light.core.directional_light_dir_array[i].xyz;
     let light_color = u_light.core.directional_light_color_array[i].xyz;
     lo += pbrDir(position, fresnel0, albedo, normal, metalness, roughness, light_dir, light_color, 1.0);
@@ -450,38 +438,54 @@ fn naughtyDogTonemapHelper(x: vec3<f32>) -> vec3<f32> {
 }
 
 /// returns '1' if fragment is lit by this light, else '0'.
-fn dirLightShadowMapSample(light_idx: u32, frag_world_pos: vec3f) -> u32 {
+fn dirLightShadowMapSample(light_idx: u32, frag_world_pos: vec3f) -> vec4f {
   let frag_world_pos_v4 = vec4f(frag_world_pos, 1.0);
   let array_offset = light_idx * p_DIR_LIGHT_CASCADE_COUNT;
   for (var i = 0u; i < p_DIR_LIGHT_CASCADE_COUNT; i++) {
     let pv = u_light.shadow.dir_csm_proj_view_mats[light_idx][i];
     let xy_v4 = pv * frag_world_pos_v4;
     let xy_distance = xy_v4.w;
-    let xy = vec2f(xy_v4.x / xy_v4.w, xy_v4.y / xy_v4.w);
+    let xy = xy_v4.xy;
     let bounds = u_light.shadow.dir_csm_xy_bounds[light_idx][i];
-    let x_in = bounds.min.x <= xy.x && xy.x <= bounds.max.x;
-    let y_in = bounds.min.y <= xy.y && xy.y <= bounds.max.y;
-    if (x_in && y_in) {
-      // DEBUG:
-      return 4 + i;
-
-      let x_uv = (xy.x - bounds.min.x) / (bounds.max.x - bounds.min.x);
-      let y_uv_flipped = (xy.y - bounds.min.y) / (bounds.max.y - bounds.min.y);
-      let y_uv = 1.0 - y_uv_flipped;
-      let sample_raw_v4 = textureSampleLevel(
+    let x_uv = 0.0 + (xy.x - bounds.min.x) / (bounds.max.x - bounds.min.x);
+    let y_uv = 1.0 - (xy.y - bounds.min.y) / (bounds.max.y - bounds.min.y);
+    if (0.0 <= x_uv && x_uv <= 1.0 && 0.0 <= y_uv && y_uv <= 1.0) {
+      let sample_v4 = textureSampleLevel(
         dir_light_csm_texture_array, 
         dir_light_csm_texture_sampler, 
         vec2f(x_uv, y_uv),
         array_offset + i,
         0.0
       );
-      let sample_raw = sample_raw_v4.r;
-      if (sample_raw * p_DIR_LIGHT_SHADOW_RADIUS <= xy_distance) {
-        return 1;
+
+      // DEBUG:
+      // return vec4f(sample_v4.r * 0.5 + 0.5, f32(i) * 64.0, 0.0, 1.0);
+      // return vec4f(1.0, f32(i) * 64.0, 0.0, 1.0);
+      if (i == 0) {
+        return vec4f(1.0, 0.0, 0.0, 1.0);
+      }
+      if (i == 1) {
+        return vec4f(0.0, 1.0, 0.0, 1.0);
+      }
+      if (i == 2) {
+        return vec4f(0.0, 0.0, 1.0, 1.0);
+      }
+      if (i == 3) {
+        return vec4f(1.0);
+      }
+
+      let sample = sample_v4.r;
+      if (sample <= xy_distance) {
+        return vec4f(1.0);
       } else {
-        return 0;
+        return vec4f(0.0);
       }
     }
   }
-  return 1;
+  
+  // DEFAULT: leave the fragment lit if outside CSM bounds:
+  // return 1;
+  
+  // DEBUG:
+  return vec4f(0.0, 0.0, 0.0, 8.0);
 }
